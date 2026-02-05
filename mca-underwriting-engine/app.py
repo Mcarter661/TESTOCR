@@ -17,6 +17,8 @@ from core_logic.position_detector import detect_positions
 from core_logic.calculator import calculate_deal_summary
 from core_logic.lender_matcher import match_lenders
 from core_logic.reporter import generate_report
+from core_logic.deal_input import DealInput, ManualPosition, MonthlyData
+from core_logic.deal_summary import generate_deal_summary
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'mca-underwriting-dev-key-2026')
@@ -27,12 +29,13 @@ CONFIG_FOLDER = os.path.join(BASE_DIR, 'config')
 INPUT_CONFIG = os.path.join(BASE_DIR, 'input_config')
 PROCESSED_FOLDER = os.path.join(BASE_DIR, 'processed_data')
 OUTPUT_FOLDER = os.path.join(BASE_DIR, 'output_reports')
+DEALS_FOLDER = os.path.join(BASE_DIR, 'saved_deals')
 ALLOWED_EXTENSIONS = {'pdf'}
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 
-for folder in [UPLOAD_FOLDER, INPUT_CONFIG, PROCESSED_FOLDER, OUTPUT_FOLDER]:
+for folder in [UPLOAD_FOLDER, INPUT_CONFIG, PROCESSED_FOLDER, OUTPUT_FOLDER, DEALS_FOLDER]:
     os.makedirs(folder, exist_ok=True)
 
 
@@ -287,6 +290,300 @@ def api_status():
         'version': '2.0',
         'uploaded_files': len(_get_uploaded_files()),
         'generated_reports': len(_get_reports()),
+    })
+
+
+# ── Manual Input Routes ──────────────────────────────────────────────
+
+def _load_funder_list():
+    """Load funder names from funder_rates_complete.json."""
+    data = _load_json('funder_rates_complete.json')
+    funders = list(data.get('funder_rates', {}).keys())
+    return sorted(funders)
+
+
+def _get_saved_deals():
+    """List saved deal JSON files."""
+    deals = []
+    if os.path.exists(DEALS_FOLDER):
+        for fn in os.listdir(DEALS_FOLDER):
+            if fn.endswith('.json'):
+                fp = os.path.join(DEALS_FOLDER, fn)
+                try:
+                    with open(fp, 'r') as f:
+                        data = json.load(f)
+                    deals.append({
+                        'filename': fn,
+                        'legal_name': data.get('legal_name', 'Unknown'),
+                        'dba': data.get('dba', ''),
+                        'modified': data.get('modified_date', ''),
+                        'positions': data.get('total_positions', 0),
+                        'avg_revenue': data.get('avg_monthly_revenue', 0),
+                    })
+                except (json.JSONDecodeError, IOError):
+                    pass
+    return sorted(deals, key=lambda x: x.get('modified', ''), reverse=True)
+
+
+@app.route('/manual-input')
+def manual_input():
+    """Render the manual input page."""
+    funders = _load_funder_list()
+    saved_deals = _get_saved_deals()
+    return render_template('manual_input.html',
+                           funders=funders,
+                           saved_deals=saved_deals)
+
+
+@app.route('/api/deal', methods=['POST'])
+def api_save_deal():
+    """Save a deal from manual input form."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    deal = DealInput(
+        legal_name=data.get('legal_name', ''),
+        dba=data.get('dba', ''),
+        industry=data.get('industry', ''),
+        state=data.get('state', ''),
+        time_in_business_months=int(data.get('time_in_business_months', 0) or 0),
+        fico_score=int(data.get('fico_score', 0) or 0),
+        ownership_percent=float(data.get('ownership_percent', 100) or 100),
+        bank_name=data.get('bank_name', ''),
+        account_number=data.get('account_number', ''),
+        account_type=data.get('account_type', 'operating'),
+        proposed_funding=float(data.get('proposed_funding', 0) or 0),
+        proposed_factor_rate=float(data.get('proposed_factor_rate', 1.35) or 1.35),
+        proposed_term_months=int(data.get('proposed_term_months', 6) or 6),
+        proposed_frequency=data.get('proposed_frequency', 'daily'),
+        notes=data.get('notes', ''),
+    )
+
+    # Add monthly data
+    for m in data.get('monthly_data', []):
+        deal.monthly_data.append(MonthlyData(
+            month=m.get('month', ''),
+            gross_revenue=float(m.get('gross_revenue', 0) or 0),
+            net_revenue=float(m.get('net_revenue', 0) or 0),
+            nsf_count=int(m.get('nsf_count', 0) or 0),
+            negative_days=int(m.get('negative_days', 0) or 0),
+            avg_daily_balance=float(m.get('avg_daily_balance', 0) or 0),
+            deposit_count=int(m.get('deposit_count', 0) or 0),
+            ending_balance=float(m.get('ending_balance', 0) or 0),
+            notes=m.get('notes', ''),
+        ))
+
+    # Add positions
+    for p in data.get('positions', []):
+        deal.positions.append(ManualPosition(
+            position_number=int(p.get('position_number', len(deal.positions) + 1)),
+            funder_name=p.get('funder_name', ''),
+            funded_date=p.get('funded_date', ''),
+            funded_amount=float(p.get('funded_amount', 0) or 0),
+            payment_amount=float(p.get('payment_amount', 0) or 0),
+            payment_frequency=p.get('payment_frequency', 'daily'),
+            factor_rate=float(p.get('factor_rate', 1.42) or 1.42),
+            is_buyout=bool(p.get('is_buyout', False)),
+            is_renewal=bool(p.get('is_renewal', False)),
+            notes=p.get('notes', ''),
+        ))
+
+    deal.calculate_all()
+
+    # Generate filename
+    safe_name = "".join(c for c in deal.legal_name if c.isalnum() or c in " _-")[:40].strip()
+    if not safe_name:
+        safe_name = "deal"
+    filename = f"{safe_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    filepath = os.path.join(DEALS_FOLDER, filename)
+    deal.save(filepath)
+
+    return jsonify({
+        'status': 'saved',
+        'filename': filename,
+        'summary': {
+            'avg_monthly_revenue': deal.avg_monthly_revenue,
+            'total_positions': deal.total_positions,
+            'total_monthly_holdback': deal.total_monthly_holdback,
+            'current_holdback_percent': deal.current_holdback_percent,
+            'combined_holdback_percent': deal.combined_holdback_percent,
+            'net_available_revenue': deal.net_available_revenue,
+        }
+    })
+
+
+@app.route('/api/deal/<filename>', methods=['GET'])
+def api_load_deal(filename):
+    """Load a saved deal."""
+    safe = secure_filename(filename)
+    filepath = os.path.join(DEALS_FOLDER, safe)
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'Deal not found'}), 404
+    try:
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+        return jsonify(data)
+    except (json.JSONDecodeError, IOError) as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/deal/<filename>/position', methods=['POST'])
+def api_add_position(filename):
+    """Add a position to a saved deal."""
+    safe = secure_filename(filename)
+    filepath = os.path.join(DEALS_FOLDER, safe)
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'Deal not found'}), 404
+
+    deal = DealInput.load(filepath)
+    p = request.get_json()
+    if not p:
+        return jsonify({'error': 'No position data'}), 400
+
+    position = ManualPosition(
+        position_number=len(deal.positions) + 1,
+        funder_name=p.get('funder_name', ''),
+        funded_date=p.get('funded_date', ''),
+        funded_amount=float(p.get('funded_amount', 0) or 0),
+        payment_amount=float(p.get('payment_amount', 0) or 0),
+        payment_frequency=p.get('payment_frequency', 'daily'),
+        factor_rate=float(p.get('factor_rate', 1.42) or 1.42),
+        is_buyout=bool(p.get('is_buyout', False)),
+        is_renewal=bool(p.get('is_renewal', False)),
+        notes=p.get('notes', ''),
+    )
+    deal.add_position(position)
+    deal.save(filepath)
+
+    return jsonify({'status': 'position_added', 'total_positions': deal.total_positions})
+
+
+@app.route('/api/deal/<filename>/position/<int:index>', methods=['PUT', 'DELETE'])
+def api_modify_position(filename, index):
+    """Update or delete a position on a saved deal."""
+    safe = secure_filename(filename)
+    filepath = os.path.join(DEALS_FOLDER, safe)
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'Deal not found'}), 404
+
+    deal = DealInput.load(filepath)
+
+    if request.method == 'DELETE':
+        if 0 <= index < len(deal.positions):
+            deal.delete_position(index)
+            deal.save(filepath)
+            return jsonify({'status': 'position_deleted', 'total_positions': deal.total_positions})
+        return jsonify({'error': 'Invalid position index'}), 400
+
+    # PUT - update
+    p = request.get_json()
+    if not p:
+        return jsonify({'error': 'No position data'}), 400
+
+    position = ManualPosition(
+        position_number=index + 1,
+        funder_name=p.get('funder_name', ''),
+        funded_date=p.get('funded_date', ''),
+        funded_amount=float(p.get('funded_amount', 0) or 0),
+        payment_amount=float(p.get('payment_amount', 0) or 0),
+        payment_frequency=p.get('payment_frequency', 'daily'),
+        factor_rate=float(p.get('factor_rate', 1.42) or 1.42),
+        is_buyout=bool(p.get('is_buyout', False)),
+        is_renewal=bool(p.get('is_renewal', False)),
+        notes=p.get('notes', ''),
+    )
+    deal.update_position(index, position)
+    deal.save(filepath)
+
+    return jsonify({'status': 'position_updated', 'total_positions': deal.total_positions})
+
+
+@app.route('/api/generate-summary/<filename>', methods=['POST'])
+def api_generate_summary(filename):
+    """Generate deal summary and Excel report from a saved deal."""
+    safe = secure_filename(filename)
+    filepath = os.path.join(DEALS_FOLDER, safe)
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'Deal not found'}), 404
+
+    deal = DealInput.load(filepath)
+
+    # Run lender matching
+    lender_csv = _find_lender_csv()
+    calc_data = {
+        'merchant_name': deal.legal_name,
+        'avg_monthly_revenue': deal.avg_monthly_revenue,
+        'fico_score': deal.fico_score,
+        'time_in_business_months': deal.time_in_business_months,
+        'state': deal.state,
+        'industry': deal.industry,
+        'total_positions': deal.total_positions,
+        'current_holdback_percent': deal.current_holdback_percent,
+        'total_nsf_count': deal.total_nsf_count,
+        'total_negative_days': deal.total_negative_days,
+        'proposed_funding': deal.proposed_funding,
+        'proposed_factor_rate': deal.proposed_factor_rate,
+        'proposed_term_months': deal.proposed_term_months,
+        'proposed_frequency': deal.proposed_frequency,
+        'combined_holdback_percent': deal.combined_holdback_percent,
+        'ownership_percent': deal.ownership_percent,
+        'max_recommended_funding': 0,
+    }
+
+    lender_data = match_lenders(calc_data, lender_csv) if lender_csv else {
+        "eligible_lenders": [], "disqualified_lenders": [],
+        "total_lenders_checked": 0, "eligible_count": 0, "disqualified_count": 0,
+    }
+
+    # Generate deal summary
+    summary = generate_deal_summary(deal, lender_matches=lender_data)
+    from dataclasses import asdict
+    summary_dict = asdict(summary)
+
+    # Generate Excel report
+    report_path = generate_report(
+        merchant_name=deal.legal_name or deal.dba or 'Manual Deal',
+        scrub_data={'total_net': deal.avg_monthly_revenue * len(deal.monthly_data),
+                    'monthly_net': {m.month: m.net_revenue for m in deal.monthly_data},
+                    'monthly_gross': {m.month: m.gross_revenue for m in deal.monthly_data},
+                    'clean_transactions': [], 'removed_transactions': [],
+                    'total_gross': deal.total_gross_revenue,
+                    'nsf_count': deal.total_nsf_count,
+                    'negative_days': deal.total_negative_days},
+        risk_data={'risk_score': 0, 'risk_tier': summary.tier,
+                   'red_flags': [{'description': f, 'severity': 'HIGH'} for f in summary.risk_flags],
+                   'cash_risk_flag': False, 'gambling_flag': False},
+        position_data={'total_positions': deal.total_positions,
+                       'positions': [{'position_number': p.position_number,
+                                      'lender_name': p.funder_name,
+                                      'funded_amount': p.funded_amount,
+                                      'payment_amount': p.payment_amount,
+                                      'payment_frequency': p.payment_frequency,
+                                      'estimated_original_funding': p.funded_amount,
+                                      'estimated_factor_rate': p.factor_rate,
+                                      'estimated_total_payback': p.total_payback,
+                                      'estimated_remaining_balance': p.estimated_remaining,
+                                      'paid_in_percent': p.paid_in_percent,
+                                      'estimated_payoff_date': p.estimated_payoff_date}
+                                     for p in deal.positions],
+                       'total_daily_holdback': deal.total_daily_holdback,
+                       'total_monthly_holdback': deal.total_monthly_holdback},
+        calculation_data=calc_data,
+        lender_match_data=lender_data,
+        output_path=OUTPUT_FOLDER,
+        deal_summary=summary_dict,
+    )
+
+    report_filename = os.path.basename(report_path) if report_path else None
+
+    return jsonify({
+        'status': 'complete',
+        'summary': summary_dict,
+        'report_file': report_filename,
+        'eligible_lenders': lender_data.get('eligible_count', 0),
+        'tier': summary.tier,
+        'risk_flags': summary.risk_flags,
     })
 
 
