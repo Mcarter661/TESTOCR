@@ -1,0 +1,496 @@
+{% extends "base.html" %}
+
+{% block title %}Manual Input - MCA Underwriting{% endblock %}
+{% block page_title %}Manual Deal Input{% endblock %}
+
+{% block content %}
+<style>
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+    .form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+    .form-group { display: flex; flex-direction: column; }
+    .form-group label { font-weight: 600; margin-bottom: 4px; font-size: 13px; color: #374151; }
+    .form-group input, .form-group select, .form-group textarea {
+        padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px;
+        font-size: 14px; background: #fff;
+    }
+    .form-group input:focus, .form-group select:focus {
+        outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+    }
+    .section-card {
+        background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
+        padding: 20px; margin-bottom: 20px;
+    }
+    .section-card h3 {
+        margin: 0 0 16px 0; padding-bottom: 8px;
+        border-bottom: 2px solid #2563eb; color: #1e293b; font-size: 16px;
+    }
+    .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .data-table th {
+        background: #f1f5f9; padding: 8px; text-align: left;
+        border-bottom: 2px solid #e2e8f0; font-weight: 600; color: #475569;
+    }
+    .data-table td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; }
+    .data-table input, .data-table select {
+        width: 100%; padding: 4px 6px; border: 1px solid #e2e8f0; border-radius: 4px;
+        font-size: 13px; box-sizing: border-box;
+    }
+    .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600; }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-success { background: #059669; color: #fff; }
+    .btn-success:hover { background: #047857; }
+    .btn-danger { background: #dc2626; color: #fff; }
+    .btn-danger:hover { background: #b91c1c; }
+    .btn-secondary { background: #6b7280; color: #fff; }
+    .btn-secondary:hover { background: #4b5563; }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .btn-row { display: flex; gap: 10px; margin-top: 16px; }
+    .summary-box {
+        background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px;
+        padding: 16px; margin-top: 16px;
+    }
+    .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .summary-item { text-align: center; }
+    .summary-item .value { font-size: 20px; font-weight: 700; color: #1e293b; }
+    .summary-item .label { font-size: 12px; color: #64748b; }
+    .risk-flag { background: #fef2f2; color: #991b1b; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin: 2px; display: inline-block; }
+    .tier-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-weight: 700; font-size: 14px; }
+    .tier-A { background: #dcfce7; color: #166534; }
+    .tier-B { background: #dbeafe; color: #1e40af; }
+    .tier-C { background: #fef9c3; color: #854d0e; }
+    .tier-D { background: #fef2f2; color: #991b1b; }
+    .load-deal-list { max-height: 200px; overflow-y: auto; }
+    .load-deal-item {
+        padding: 8px 12px; border: 1px solid #e5e7eb; border-radius: 4px;
+        margin-bottom: 4px; cursor: pointer; display: flex; justify-content: space-between;
+    }
+    .load-deal-item:hover { background: #f0f9ff; border-color: #2563eb; }
+    #result-section { display: none; }
+</style>
+
+<!-- Load saved deal section -->
+{% if saved_deals %}
+<div class="section-card">
+    <h3>Load Saved Deal</h3>
+    <div class="load-deal-list">
+        {% for deal in saved_deals %}
+        <div class="load-deal-item" onclick="loadDeal('{{ deal.filename }}')">
+            <span><strong>{{ deal.legal_name }}</strong> {% if deal.dba %}({{ deal.dba }}){% endif %}</span>
+            <span>{{ deal.positions }} pos | ${{ "{:,.0f}".format(deal.avg_revenue) }}/mo | {{ deal.modified }}</span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<form id="deal-form" onsubmit="return false;">
+
+<!-- Business Info -->
+<div class="section-card">
+    <h3>Business Information</h3>
+    <div class="form-grid">
+        <div class="form-group">
+            <label>Legal Name *</label>
+            <input type="text" id="legal_name" required placeholder="Full legal business name">
+        </div>
+        <div class="form-group">
+            <label>DBA</label>
+            <input type="text" id="dba" placeholder="Doing Business As">
+        </div>
+        <div class="form-group">
+            <label>Industry</label>
+            <input type="text" id="industry" placeholder="e.g. Restaurant, Retail, Construction">
+        </div>
+        <div class="form-group">
+            <label>State</label>
+            <input type="text" id="state" placeholder="e.g. FL, NY, CA" maxlength="2">
+        </div>
+        <div class="form-group">
+            <label>Time in Business (months)</label>
+            <input type="number" id="time_in_business_months" min="0" value="0">
+        </div>
+        <div class="form-group">
+            <label>FICO Score</label>
+            <input type="number" id="fico_score" min="300" max="850" value="0" placeholder="300-850">
+        </div>
+        <div class="form-group">
+            <label>Ownership %</label>
+            <input type="number" id="ownership_percent" min="0" max="100" step="0.1" value="100">
+        </div>
+        <div class="form-group">
+            <label>Bank Name</label>
+            <input type="text" id="bank_name" placeholder="Primary bank">
+        </div>
+    </div>
+</div>
+
+<!-- Monthly Data -->
+<div class="section-card">
+    <h3>Monthly Bank Statement Data</h3>
+    <div style="overflow-x: auto;">
+        <table class="data-table" id="monthly-table">
+            <thead>
+                <tr>
+                    <th>Month</th>
+                    <th>Gross Revenue</th>
+                    <th>Net Revenue</th>
+                    <th>NSFs</th>
+                    <th>Neg Days</th>
+                    <th>Avg Daily Bal</th>
+                    <th>Deposits</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="monthly-body">
+            </tbody>
+        </table>
+    </div>
+    <button type="button" class="btn btn-secondary btn-sm" onclick="addMonthRow()" style="margin-top: 10px;">+ Add Month</button>
+</div>
+
+<!-- Positions -->
+<div class="section-card">
+    <h3>Current MCA Positions</h3>
+    <div style="overflow-x: auto;">
+        <table class="data-table" id="positions-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Funder</th>
+                    <th>Funded Date</th>
+                    <th>Funded Amt</th>
+                    <th>Payment</th>
+                    <th>Frequency</th>
+                    <th>Factor Rate</th>
+                    <th>Buyout</th>
+                    <th>Renewal</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="positions-body">
+            </tbody>
+        </table>
+    </div>
+    <button type="button" class="btn btn-secondary btn-sm" onclick="addPositionRow()" style="margin-top: 10px;">+ Add Position</button>
+</div>
+
+<!-- Proposed Deal -->
+<div class="section-card">
+    <h3>Proposed Deal</h3>
+    <div class="form-grid">
+        <div class="form-group">
+            <label>Funding Amount ($)</label>
+            <input type="number" id="proposed_funding" min="0" step="100" value="0">
+        </div>
+        <div class="form-group">
+            <label>Factor Rate</label>
+            <input type="number" id="proposed_factor_rate" min="1.0" max="2.0" step="0.01" value="1.35">
+        </div>
+        <div class="form-group">
+            <label>Term (months)</label>
+            <input type="number" id="proposed_term_months" min="1" max="24" value="6">
+        </div>
+        <div class="form-group">
+            <label>Payment Frequency</label>
+            <select id="proposed_frequency">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<!-- Notes -->
+<div class="section-card">
+    <h3>Notes</h3>
+    <div class="form-group">
+        <textarea id="deal_notes" rows="3" placeholder="Any additional notes about this deal..."></textarea>
+    </div>
+</div>
+
+<!-- Action Buttons -->
+<div class="btn-row">
+    <button type="button" class="btn btn-primary" onclick="saveDeal()">Save Deal</button>
+    <button type="button" class="btn btn-success" onclick="generateSummary()">Generate Summary & Report</button>
+    <button type="button" class="btn btn-secondary" onclick="clearForm()">Clear Form</button>
+</div>
+
+</form>
+
+<!-- Result Section -->
+<div id="result-section" class="section-card" style="margin-top: 20px;">
+    <h3>Deal Summary Results</h3>
+    <div id="result-tier" style="text-align: center; margin-bottom: 16px;"></div>
+    <div class="summary-box">
+        <div class="summary-grid" id="result-summary"></div>
+    </div>
+    <div id="result-flags" style="margin-top: 12px;"></div>
+    <div id="result-actions" style="margin-top: 16px;"></div>
+</div>
+
+<script>
+const FUNDERS = {{ funders | tojson }};
+let currentFilename = null;
+
+function funderOptions() {
+    return '<option value="">-- Select Funder --</option>' +
+        FUNDERS.map(f => `<option value="${f}">${f}</option>`).join('');
+}
+
+function addMonthRow(data) {
+    const tbody = document.getElementById('monthly-body');
+    const row = document.createElement('tr');
+    data = data || {};
+    row.innerHTML = `
+        <td><input type="text" class="m-month" value="${data.month || ''}" placeholder="2024-01"></td>
+        <td><input type="number" class="m-gross" value="${data.gross_revenue || 0}" step="0.01"></td>
+        <td><input type="number" class="m-net" value="${data.net_revenue || 0}" step="0.01"></td>
+        <td><input type="number" class="m-nsf" value="${data.nsf_count || 0}" min="0"></td>
+        <td><input type="number" class="m-negdays" value="${data.negative_days || 0}" min="0"></td>
+        <td><input type="number" class="m-adb" value="${data.avg_daily_balance || 0}" step="0.01"></td>
+        <td><input type="number" class="m-deps" value="${data.deposit_count || 0}" min="0"></td>
+        <td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest('tr').remove()">X</button></td>
+    `;
+    tbody.appendChild(row);
+}
+
+function addPositionRow(data) {
+    const tbody = document.getElementById('positions-body');
+    const idx = tbody.children.length + 1;
+    const row = document.createElement('tr');
+    data = data || {};
+    const freq = data.payment_frequency || 'daily';
+    row.innerHTML = `
+        <td>${idx}</td>
+        <td><select class="p-funder">${funderOptions()}</select></td>
+        <td><input type="date" class="p-date" value="${data.funded_date || ''}"></td>
+        <td><input type="number" class="p-amount" value="${data.funded_amount || 0}" step="100"></td>
+        <td><input type="number" class="p-payment" value="${data.payment_amount || 0}" step="0.01"></td>
+        <td><select class="p-freq">
+            <option value="daily" ${freq==='daily'?'selected':''}>Daily</option>
+            <option value="weekly" ${freq==='weekly'?'selected':''}>Weekly</option>
+            <option value="biweekly" ${freq==='biweekly'?'selected':''}>Bi-Weekly</option>
+            <option value="monthly" ${freq==='monthly'?'selected':''}>Monthly</option>
+        </select></td>
+        <td><input type="number" class="p-factor" value="${data.factor_rate || 1.42}" step="0.01" min="1.0" max="2.0"></td>
+        <td><input type="checkbox" class="p-buyout" ${data.is_buyout ? 'checked' : ''}></td>
+        <td><input type="checkbox" class="p-renewal" ${data.is_renewal ? 'checked' : ''}></td>
+        <td><button type="button" class="btn btn-danger btn-sm" onclick="removePositionRow(this)">X</button></td>
+    `;
+    tbody.appendChild(row);
+    if (data.funder_name) {
+        row.querySelector('.p-funder').value = data.funder_name;
+    }
+}
+
+function removePositionRow(btn) {
+    btn.closest('tr').remove();
+    // Renumber
+    const rows = document.querySelectorAll('#positions-body tr');
+    rows.forEach((r, i) => { r.cells[0].textContent = i + 1; });
+}
+
+function collectFormData() {
+    const monthly_data = [];
+    document.querySelectorAll('#monthly-body tr').forEach(row => {
+        monthly_data.push({
+            month: row.querySelector('.m-month').value,
+            gross_revenue: parseFloat(row.querySelector('.m-gross').value) || 0,
+            net_revenue: parseFloat(row.querySelector('.m-net').value) || 0,
+            nsf_count: parseInt(row.querySelector('.m-nsf').value) || 0,
+            negative_days: parseInt(row.querySelector('.m-negdays').value) || 0,
+            avg_daily_balance: parseFloat(row.querySelector('.m-adb').value) || 0,
+            deposit_count: parseInt(row.querySelector('.m-deps').value) || 0,
+        });
+    });
+
+    const positions = [];
+    document.querySelectorAll('#positions-body tr').forEach((row, idx) => {
+        positions.push({
+            position_number: idx + 1,
+            funder_name: row.querySelector('.p-funder').value,
+            funded_date: row.querySelector('.p-date').value,
+            funded_amount: parseFloat(row.querySelector('.p-amount').value) || 0,
+            payment_amount: parseFloat(row.querySelector('.p-payment').value) || 0,
+            payment_frequency: row.querySelector('.p-freq').value,
+            factor_rate: parseFloat(row.querySelector('.p-factor').value) || 1.42,
+            is_buyout: row.querySelector('.p-buyout').checked,
+            is_renewal: row.querySelector('.p-renewal').checked,
+        });
+    });
+
+    return {
+        legal_name: document.getElementById('legal_name').value,
+        dba: document.getElementById('dba').value,
+        industry: document.getElementById('industry').value,
+        state: document.getElementById('state').value,
+        time_in_business_months: parseInt(document.getElementById('time_in_business_months').value) || 0,
+        fico_score: parseInt(document.getElementById('fico_score').value) || 0,
+        ownership_percent: parseFloat(document.getElementById('ownership_percent').value) || 100,
+        bank_name: document.getElementById('bank_name').value,
+        proposed_funding: parseFloat(document.getElementById('proposed_funding').value) || 0,
+        proposed_factor_rate: parseFloat(document.getElementById('proposed_factor_rate').value) || 1.35,
+        proposed_term_months: parseInt(document.getElementById('proposed_term_months').value) || 6,
+        proposed_frequency: document.getElementById('proposed_frequency').value,
+        notes: document.getElementById('deal_notes').value,
+        monthly_data: monthly_data,
+        positions: positions,
+    };
+}
+
+function populateForm(data) {
+    document.getElementById('legal_name').value = data.legal_name || '';
+    document.getElementById('dba').value = data.dba || '';
+    document.getElementById('industry').value = data.industry || '';
+    document.getElementById('state').value = data.state || '';
+    document.getElementById('time_in_business_months').value = data.time_in_business_months || 0;
+    document.getElementById('fico_score').value = data.fico_score || 0;
+    document.getElementById('ownership_percent').value = data.ownership_percent || 100;
+    document.getElementById('bank_name').value = data.bank_name || '';
+    document.getElementById('proposed_funding').value = data.proposed_funding || 0;
+    document.getElementById('proposed_factor_rate').value = data.proposed_factor_rate || 1.35;
+    document.getElementById('proposed_term_months').value = data.proposed_term_months || 6;
+    document.getElementById('proposed_frequency').value = data.proposed_frequency || 'daily';
+    document.getElementById('deal_notes').value = data.notes || '';
+
+    // Monthly data
+    document.getElementById('monthly-body').innerHTML = '';
+    (data.monthly_data || []).forEach(m => addMonthRow(m));
+
+    // Positions
+    document.getElementById('positions-body').innerHTML = '';
+    (data.positions || []).forEach(p => addPositionRow(p));
+}
+
+async function saveDeal() {
+    const data = collectFormData();
+    if (!data.legal_name) {
+        alert('Legal Name is required');
+        return;
+    }
+    try {
+        const resp = await fetch('/api/deal', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data),
+        });
+        const result = await resp.json();
+        if (resp.ok) {
+            currentFilename = result.filename;
+            alert('Deal saved: ' + result.filename);
+        } else {
+            alert('Error: ' + (result.error || 'Unknown error'));
+        }
+    } catch (e) {
+        alert('Network error: ' + e.message);
+    }
+}
+
+async function loadDeal(filename) {
+    try {
+        const resp = await fetch('/api/deal/' + filename);
+        if (!resp.ok) {
+            alert('Error loading deal');
+            return;
+        }
+        const data = await resp.json();
+        currentFilename = filename;
+        populateForm(data);
+    } catch (e) {
+        alert('Network error: ' + e.message);
+    }
+}
+
+async function generateSummary() {
+    // Save first if not saved
+    if (!currentFilename) {
+        const data = collectFormData();
+        if (!data.legal_name) {
+            alert('Legal Name is required');
+            return;
+        }
+        const saveResp = await fetch('/api/deal', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data),
+        });
+        const saveResult = await saveResp.json();
+        if (!saveResp.ok) {
+            alert('Error saving: ' + (saveResult.error || 'Unknown'));
+            return;
+        }
+        currentFilename = saveResult.filename;
+    }
+
+    try {
+        const resp = await fetch('/api/generate-summary/' + currentFilename, { method: 'POST' });
+        const result = await resp.json();
+        if (!resp.ok) {
+            alert('Error: ' + (result.error || 'Unknown'));
+            return;
+        }
+        showResults(result);
+    } catch (e) {
+        alert('Network error: ' + e.message);
+    }
+}
+
+function fmt(val) {
+    if (typeof val === 'number') {
+        return val.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 2});
+    }
+    return val || '-';
+}
+
+function showResults(result) {
+    const section = document.getElementById('result-section');
+    section.style.display = 'block';
+
+    // Tier
+    const tier = result.tier || 'D';
+    document.getElementById('result-tier').innerHTML =
+        `<span class="tier-badge tier-${tier}">Tier ${tier}</span>`;
+
+    // Summary grid
+    const s = result.summary || {};
+    document.getElementById('result-summary').innerHTML = `
+        <div class="summary-item"><div class="value">$${fmt(s.avg_monthly_revenue)}</div><div class="label">Avg Monthly Revenue</div></div>
+        <div class="summary-item"><div class="value">${s.position_count || 0}</div><div class="label">Current Positions</div></div>
+        <div class="summary-item"><div class="value">${fmt(s.current_holdback_percent)}%</div><div class="label">Current Holdback</div></div>
+        <div class="summary-item"><div class="value">${fmt(s.combined_holdback_percent)}%</div><div class="label">Combined Holdback (w/ New)</div></div>
+        <div class="summary-item"><div class="value">$${fmt(s.net_available_after)}</div><div class="label">Net Available After</div></div>
+        <div class="summary-item"><div class="value">$${fmt(s.max_recommended_funding)}</div><div class="label">Max Recommended Funding</div></div>
+        <div class="summary-item"><div class="value">${result.eligible_lenders || 0}</div><div class="label">Eligible Lenders</div></div>
+        <div class="summary-item"><div class="value">${fmt(s.adb_to_payment_ratio)}x</div><div class="label">ADB/Payment Ratio</div></div>
+        <div class="summary-item"><div class="value">$${fmt(s.proposed_payment)}</div><div class="label">Proposed Payment</div></div>
+    `;
+
+    // Risk flags
+    const flags = result.risk_flags || [];
+    document.getElementById('result-flags').innerHTML = flags.length
+        ? '<strong>Risk Flags:</strong><br>' + flags.map(f => `<span class="risk-flag">${f}</span>`).join(' ')
+        : '<em>No risk flags</em>';
+
+    // Download link
+    if (result.report_file) {
+        document.getElementById('result-actions').innerHTML =
+            `<a href="/download/${result.report_file}" class="btn btn-primary">Download Excel Report</a>`;
+    }
+
+    section.scrollIntoView({ behavior: 'smooth' });
+}
+
+function clearForm() {
+    currentFilename = null;
+    document.getElementById('deal-form').reset();
+    document.getElementById('monthly-body').innerHTML = '';
+    document.getElementById('positions-body').innerHTML = '';
+    document.getElementById('result-section').style.display = 'none';
+}
+
+// Initialize with 3 empty month rows
+addMonthRow();
+addMonthRow();
+addMonthRow();
+</script>
+{% endblock %}

@@ -1,10 +1,12 @@
 """
-Reporter - Generates the 5-tab Master Underwriting Excel report.
+Reporter - Generates the 7-tab Master Underwriting Excel report.
 Tab 1: Master Summary
 Tab 2: The Scrub
 Tab 3: Reverse Engineering
 Tab 4: In-House Forensics
 Tab 5: Lender Match
+Tab 6: Raw Transactions
+Tab 7: Deal Summary (Spec Sheet)
 """
 
 import xlsxwriter
@@ -23,8 +25,10 @@ def generate_report(
     lender_match_data: dict,
     output_path: str,
     fraud_flags: list = None,
+    raw_transactions: list = None,
+    deal_summary: dict = None,
 ) -> str:
-    """Main entry point. Generate the complete 5-tab Excel report."""
+    """Main entry point. Generate the 7-tab Excel report."""
     os.makedirs(output_path, exist_ok=True)
 
     safe_name = "".join(c for c in merchant_name if c.isalnum() or c in " _-")[:40].strip()
@@ -43,6 +47,9 @@ def generate_report(
     _add_reverse_engineering_tab(workbook, fmt, position_data)
     _add_forensics_tab(workbook, fmt, risk_data, fraud_flags or [])
     _add_lender_match_tab(workbook, fmt, lender_match_data)
+    _add_raw_transactions_tab(workbook, fmt, raw_transactions or [])
+    if deal_summary:
+        _add_deal_summary_tab(workbook, fmt, deal_summary)
 
     workbook.close()
 
@@ -477,6 +484,273 @@ def _add_lender_match_tab(workbook, fmt, lender_data):
     ws.write(row, 1, f"{lender_data.get('total_lenders_checked', 0)} checked, "
                       f"{lender_data.get('eligible_count', 0)} eligible, "
                       f"{lender_data.get('disqualified_count', 0)} disqualified", fmt["value"])
+
+
+# ── Tab 6: Raw Transactions ─────────────────────────────────────────
+# (function below)
+
+# ── Tab 7: Deal Summary (Spec Sheet) ───────────────────────────────
+
+def _add_deal_summary_tab(workbook, fmt, summary):
+    ws = workbook.add_worksheet("Deal Summary")
+    ws.set_column("A:A", 28)
+    ws.set_column("B:B", 20)
+    ws.set_column("C:C", 24)
+    ws.set_column("D:D", 18)
+    ws.set_column("E:H", 14)
+
+    row = 0
+    ws.write(row, 0, "DEAL SUMMARY - SPEC SHEET", fmt["title"])
+    row += 2
+
+    # ── Basic Info ──
+    ws.write(row, 0, "BUSINESS INFORMATION", fmt["section"])
+    row += 1
+    info_fields = [
+        ("Legal Name", summary.get("legal_name", "")),
+        ("DBA", summary.get("dba", "")),
+        ("Industry", summary.get("industry", "")),
+        ("State", summary.get("state", "")),
+        ("FICO Score", summary.get("fico_score", 0)),
+        ("Time in Business", f"{summary.get('time_in_business_months', 0)} months"),
+        ("Ownership", f"{summary.get('ownership_percent', 100)}%"),
+        ("Deal Type", summary.get("deal_type", "")),
+        ("Tier", summary.get("tier", "")),
+    ]
+    for label, value in info_fields:
+        ws.write(row, 0, label, fmt["label"])
+        if label == "Tier":
+            t = str(value)
+            t_fmt = fmt["pass"] if t in ("A", "B") else fmt["warn"] if t == "C" else fmt["fail"]
+            ws.write(row, 1, t, t_fmt)
+        else:
+            ws.write(row, 1, value, fmt["value"])
+        row += 1
+
+    row += 1
+    # ── Revenue Summary ──
+    ws.write(row, 0, "REVENUE SUMMARY", fmt["section"])
+    row += 1
+    ws.write(row, 0, "Avg Monthly Revenue", fmt["label"])
+    ws.write(row, 1, summary.get("avg_monthly_revenue", 0), fmt["currency"])
+    ws.write(row, 2, "Annualized Revenue", fmt["label"])
+    ws.write(row, 3, summary.get("annualized_revenue", 0), fmt["currency"])
+    row += 1
+    ws.write(row, 0, "Lowest Month", fmt["label"])
+    ws.write(row, 1, summary.get("lowest_month_revenue", 0), fmt["currency"])
+    ws.write(row, 2, "Highest Month", fmt["label"])
+    ws.write(row, 3, summary.get("highest_month_revenue", 0), fmt["currency"])
+    row += 1
+    trend = summary.get("revenue_trend", "")
+    ws.write(row, 0, "Revenue Trend", fmt["label"])
+    t_fmt = fmt["pass"] if trend == "Growing" else fmt["fail"] if trend == "Declining" else fmt["value"]
+    ws.write(row, 1, trend or "N/A", t_fmt)
+    ws.write(row, 2, "Avg Daily Balance", fmt["label"])
+    ws.write(row, 3, summary.get("avg_daily_balance", 0), fmt["currency"])
+    row += 1
+    ws.write(row, 0, "Total NSFs", fmt["label"])
+    nsf = summary.get("total_nsf_count", 0)
+    ws.write(row, 1, nsf, fmt["fail"] if nsf > 3 else fmt["value"])
+    ws.write(row, 2, "Total Negative Days", fmt["label"])
+    neg = summary.get("total_negative_days", 0)
+    ws.write(row, 3, neg, fmt["fail"] if neg > 5 else fmt["value"])
+
+    row += 2
+    # ── Current Positions ──
+    ws.write(row, 0, "CURRENT POSITIONS", fmt["section"])
+    row += 1
+    ws.write(row, 0, "Position Count", fmt["label"])
+    ws.write(row, 1, summary.get("position_count", 0), fmt["number"])
+    ws.write(row, 2, "Days Since Last Funding", fmt["label"])
+    ws.write(row, 3, summary.get("days_since_last_funding", 0), fmt["number"])
+    row += 1
+    ws.write(row, 0, "Current Monthly Holdback", fmt["label"])
+    ws.write(row, 1, summary.get("total_current_holdback", 0), fmt["currency"])
+    ws.write(row, 2, "Current Holdback %", fmt["label"])
+    hb_pct = summary.get("current_holdback_percent", 0)
+    ws.write(row, 3, f"{hb_pct:.1f}%", fmt["fail"] if hb_pct > 40 else fmt["warn"] if hb_pct > 30 else fmt["value"])
+    row += 1
+    ws.write(row, 0, "Total Remaining Balance", fmt["label"])
+    ws.write(row, 1, summary.get("total_remaining_balance", 0), fmt["currency"])
+    row += 1
+
+    positions = summary.get("positions", [])
+    if positions:
+        row += 1
+        pos_headers = ["#", "Funder", "Payment", "Freq", "Funded Amt", "Remaining", "Paid In %", "Est. Payoff"]
+        for col, h in enumerate(pos_headers):
+            ws.write(row, col, h, fmt["header"])
+        row += 1
+        for pos in positions:
+            ws.write(row, 0, pos.get("position", ""), fmt["number"])
+            ws.write(row, 1, pos.get("funder", ""), fmt["value"])
+            ws.write(row, 2, pos.get("payment", 0), fmt["currency"])
+            ws.write(row, 3, pos.get("frequency", ""), fmt["value"])
+            ws.write(row, 4, pos.get("funded_amount", 0), fmt["currency"])
+            ws.write(row, 5, pos.get("remaining", 0), fmt["currency"])
+            pct = pos.get("paid_in_pct", 0)
+            ws.write(row, 6, f"{pct:.1f}%", fmt["pass"] if pct > 50 else fmt["warn"])
+            ws.write(row, 7, pos.get("est_payoff", ""), fmt["value"])
+            row += 1
+
+    row += 1
+    # ── Proposed Deal ──
+    ws.write(row, 0, "PROPOSED DEAL", fmt["section"])
+    row += 1
+    ws.write(row, 0, "Funding Amount", fmt["label"])
+    ws.write(row, 1, summary.get("proposed_funding", 0), fmt["currency_bold"])
+    ws.write(row, 2, "Factor Rate", fmt["label"])
+    ws.write(row, 3, summary.get("proposed_factor_rate", 0), fmt["value"])
+    row += 1
+    ws.write(row, 0, "Total Payback", fmt["label"])
+    ws.write(row, 1, summary.get("proposed_payback", 0), fmt["currency"])
+    ws.write(row, 2, "Term", fmt["label"])
+    ws.write(row, 3, f"{summary.get('proposed_term_months', 0)} months", fmt["value"])
+    row += 1
+    ws.write(row, 0, "Payment Amount", fmt["label"])
+    ws.write(row, 1, summary.get("proposed_payment", 0), fmt["currency"])
+    ws.write(row, 2, "Frequency", fmt["label"])
+    ws.write(row, 3, summary.get("proposed_frequency", ""), fmt["value"])
+
+    row += 2
+    # ── New Deal Impact ──
+    ws.write(row, 0, "NEW DEAL IMPACT", fmt["section"])
+    row += 1
+    ws.write(row, 0, "New Monthly Holdback", fmt["label"])
+    ws.write(row, 1, summary.get("new_holdback_amount", 0), fmt["currency"])
+    row += 1
+    ws.write(row, 0, "Combined Monthly Holdback", fmt["label"])
+    ws.write(row, 1, summary.get("combined_holdback", 0), fmt["currency_bold"])
+    ws.write(row, 2, "Combined Holdback %", fmt["label"])
+    cb_pct = summary.get("combined_holdback_percent", 0)
+    ws.write(row, 3, f"{cb_pct:.1f}%", fmt["fail"] if cb_pct > 40 else fmt["warn"] if cb_pct > 30 else fmt["pass"])
+    row += 1
+    ws.write(row, 0, "Net Available After", fmt["label"])
+    ws.write(row, 1, summary.get("net_available_after", 0), fmt["currency"])
+    ws.write(row, 2, "ADB/Payment Ratio", fmt["label"])
+    adb_r = summary.get("adb_to_payment_ratio", 0)
+    ws.write(row, 3, f"{adb_r:.2f}x", fmt["pass"] if adb_r >= 3.5 else fmt["fail"] if adb_r > 0 else fmt["value"])
+
+    row += 2
+    # ── Recommendations ──
+    ws.write(row, 0, "RECOMMENDATIONS", fmt["section"])
+    row += 1
+    ws.write(row, 0, "Max Recommended Funding", fmt["label"])
+    ws.write(row, 1, summary.get("max_recommended_funding", 0), fmt["currency_bold"])
+    ws.write(row, 2, "Max Daily Payment", fmt["label"])
+    ws.write(row, 3, summary.get("max_daily_payment", 0), fmt["currency"])
+
+    row += 2
+    # ── Risk Flags ──
+    ws.write(row, 0, "RISK FLAGS", fmt["section"])
+    row += 1
+    risk_flags = summary.get("risk_flags", [])
+    if risk_flags:
+        for flag in risk_flags:
+            ws.write(row, 0, "WARNING", fmt["fail"])
+            ws.write(row, 1, flag, fmt["wrap"])
+            row += 1
+    else:
+        ws.write(row, 0, "CLEAR", fmt["pass"])
+        ws.write(row, 1, "No major risk flags identified", fmt["pass"])
+        row += 1
+
+    row += 1
+    # ── Lender Matches ──
+    top_matches = summary.get("top_lender_matches", [])
+    ws.write(row, 0, "TOP LENDER MATCHES", fmt["section"])
+    row += 1
+    ws.write(row, 0, "Eligible Lenders", fmt["label"])
+    ws.write(row, 1, summary.get("eligible_lender_count", 0), fmt["number"])
+    row += 1
+    if top_matches:
+        for m in top_matches[:5]:
+            ws.write(row, 0, m.get("lender_name", ""), fmt["value"])
+            ws.write(row, 1, f"Score: {m.get('match_score', 0)}", fmt["value"])
+            row += 1
+
+    row += 1
+    # ── Monthly Breakdown ──
+    monthly = summary.get("monthly_breakdown", [])
+    if monthly:
+        ws.write(row, 0, "MONTHLY BREAKDOWN", fmt["section"])
+        row += 1
+        m_headers = ["Month", "Net Revenue", "NSFs", "Neg Days", "ADB", "Deposits", "Holdback $", "Holdback %"]
+        for col, h in enumerate(m_headers):
+            ws.write(row, col, h, fmt["header"])
+        row += 1
+        for mo in monthly:
+            ws.write(row, 0, mo.get("month", ""), fmt["value"])
+            ws.write(row, 1, mo.get("net_revenue", 0), fmt["currency"])
+            ws.write(row, 2, mo.get("nsf_count", 0), fmt["number"])
+            ws.write(row, 3, mo.get("negative_days", 0), fmt["number"])
+            ws.write(row, 4, mo.get("avg_daily_balance", 0), fmt["currency"])
+            ws.write(row, 5, mo.get("deposit_count", 0), fmt["number"])
+            ws.write(row, 6, mo.get("holdback_amount", 0), fmt["currency"])
+            hb = mo.get("holdback_percent", 0)
+            ws.write(row, 7, f"{hb:.1f}%", fmt["warn"] if hb > 30 else fmt["value"])
+            row += 1
+
+
+# ── Tab 6 function ──────────────────────────────────────────────────
+
+def _add_raw_transactions_tab(workbook, fmt, transactions):
+    ws = workbook.add_worksheet("Raw Transactions")
+    ws.set_column("A:A", 14)
+    ws.set_column("B:B", 50)
+    ws.set_column("C:C", 16)
+    ws.set_column("D:D", 16)
+
+    ws.write("A1", "RAW EXTRACTED TRANSACTIONS", fmt["title"])
+
+    row = 3
+    ws.write(row, 0, f"TOTAL TRANSACTIONS: {len(transactions)}", fmt["section"])
+    row += 1
+
+    if not transactions:
+        ws.write(row, 0, "No transactions extracted.", fmt["value"])
+        return
+
+    headers = ["Date", "Description", "Amount", "Balance"]
+    for col, h in enumerate(headers):
+        ws.write(row, col, h, fmt["header"])
+    row += 1
+
+    total_deposits = 0.0
+    total_withdrawals = 0.0
+    deposit_count = 0
+    withdrawal_count = 0
+
+    for txn in transactions:
+        ws.write(row, 0, txn.get("date", ""), fmt["value"])
+        ws.write(row, 1, txn.get("description", ""), fmt["wrap"])
+        amount = txn.get("amount", 0)
+        amount_fmt = fmt["pass"] if amount > 0 else fmt["fail"] if amount < 0 else fmt["value"]
+        ws.write(row, 2, amount, fmt["currency"])
+        balance = txn.get("running_balance")
+        if balance is not None:
+            ws.write(row, 3, balance, fmt["currency"])
+        if amount > 0:
+            total_deposits += amount
+            deposit_count += 1
+        elif amount < 0:
+            total_withdrawals += amount
+            withdrawal_count += 1
+        row += 1
+
+    row += 1
+    ws.write(row, 0, "SUMMARY", fmt["section"])
+    row += 1
+    ws.write(row, 0, "Total Deposits", fmt["label"])
+    ws.write(row, 1, f"{deposit_count} transactions", fmt["value"])
+    ws.write(row, 2, total_deposits, fmt["currency_bold"])
+    row += 1
+    ws.write(row, 0, "Total Withdrawals", fmt["label"])
+    ws.write(row, 1, f"{withdrawal_count} transactions", fmt["value"])
+    ws.write(row, 2, total_withdrawals, fmt["currency_bold"])
+    row += 1
+    ws.write(row, 0, "Net", fmt["label"])
+    ws.write(row, 2, total_deposits + total_withdrawals, fmt["currency_bold"])
 
 
 # ── JSON Output ───────────────────────────────────────────────────────

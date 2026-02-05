@@ -28,6 +28,11 @@
                     <span class="icon">&#9881;</span> Analyze
                 </a>
             </li>
+            <li class="{% if request.endpoint == 'manual_input' %}active{% endif %}">
+                <a href="{{ url_for('manual_input') }}">
+                    <span class="icon">&#9998;</span> Manual Input
+                </a>
+            </li>
             <li class="{% if request.endpoint == 'results' %}active{% endif %}">
                 <a href="{{ url_for('results') }}">
                     <span class="icon">&#9776;</span> Results

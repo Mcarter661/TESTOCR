@@ -1,0 +1,64 @@
+{
+  "generated_at": "2026-02-05T20:09:38.065418",
+  "merchant_name": "Tab6 Test",
+  "scrub_analysis": {
+    "monthly_gross": {},
+    "monthly_net": {},
+    "monthly_deposit_count": {},
+    "total_gross": 0,
+    "total_net": 0,
+    "avg_monthly_net": 0,
+    "excluded_transactions": []
+  },
+  "risk_analysis": {
+    "risk_score": 72,
+    "risk_tier": "B",
+    "nsf_count": 0,
+    "nsf_total_fees": 0,
+    "negative_day_count": 0,
+    "consecutive_negative_days": 0,
+    "max_negative_balance": 0,
+    "cash_deposit_percent": 0,
+    "cash_risk_flag": false,
+    "cash_deposit_total": 0,
+    "gambling_flag": false,
+    "gambling_total": 0,
+    "red_flags": [],
+    "revenue_velocity": 0,
+    "velocity_flag": "stable",
+    "revenue_acceleration": 0,
+    "expenses_by_category": {}
+  },
+  "position_analysis": {
+    "positions": [],
+    "total_positions": 0,
+    "total_daily_payment": 0,
+    "total_monthly_payment": 0,
+    "estimated_total_remaining": 0,
+    "unique_lenders": [],
+    "days_since_last_funding": 0
+  },
+  "calculations": {
+    "fico_score": 700,
+    "monthly_revenue": 50000,
+    "time_in_business_months": 36,
+    "max_recommended_funding": 50000,
+    "net_available_revenue": 30000,
+    "cash_flow_coverage": 1.8,
+    "annualized_revenue": 600000,
+    "advance_cap": {
+      "min_advance": 30000,
+      "max_advance": 70000
+    },
+    "dti_ratio": 0.25,
+    "current_holdback_percent": 10,
+    "monthly_holdback": 4400
+  },
+  "lender_matching": {
+    "eligible_lenders": [],
+    "disqualified_lenders": [],
+    "total_lenders_checked": 0,
+    "eligible_count": 0,
+    "disqualified_count": 0
+  }
+}
