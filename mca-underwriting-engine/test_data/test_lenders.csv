@@ -1,0 +1,6 @@
+Lender Name,Min FICO,Min Monthly Revenue,Min Time in Business,Max Monthly NSFs,Max Negative Days,Max Positions Allowed,Min Days Since Last Funding,Min Ownership %,Min Avg Daily Balance,Max Holdback %,Restricted States,Restricted Industries,Product Types,Payment Types
+Kalamata Prime,600,50000,12,4,5,1,90,51,5000,25,PR,"Adult Entertainment,Gambling,Cannabis",MCA,Weekly
+Kalamata Select,550,30000,12,6,10,3,30,51,3000,35,PR,"Construction,Home-Based",MCA,Daily|Weekly
+Credibly Prime,650,25000,36,0,0,1,0,51,3000,20,"CO,DE,GA,MI,MT,NV,NJ,ND,OK,OR,SD,TX,VT",,WCL|MCA,Weekly
+Fintap A-Paper,720,20000,48,0,5,1,60,51,5000,15,"VA,MO","Auto Sales,Adult,THC",MCA,Weekly
+IOU Core,650,35000,12,3,5,2,0,50,3000,30,"MT,NV,SD,VT,HI,ND","Adult,Gambling,Cannabis,Construction",Term Loan,Daily|Weekly

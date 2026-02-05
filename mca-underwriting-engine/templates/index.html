@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - MCA Underwriting Command Center{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="dashboard-grid">
+    <div class="stat-card">
+        <div class="stat-icon upload-icon">&#8679;</div>
+        <div class="stat-info">
+            <h3>{{ file_count }}</h3>
+            <p>Uploaded Files</p>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon report-icon">&#9776;</div>
+        <div class="stat-info">
+            <h3>{{ report_count }}</h3>
+            <p>Reports Generated</p>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon status-icon">&#10003;</div>
+        <div class="stat-info">
+            <h3>Ready</h3>
+            <p>Engine Status</p>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon build-icon">&#9733;</div>
+        <div class="stat-info">
+            <h3>v2.0</h3>
+            <p>Production Build</p>
+        </div>
+    </div>
+</div>
+
+<div class="dashboard-sections">
+    <section class="dashboard-section">
+        <div class="section-header">
+            <h3>Quick Actions</h3>
+        </div>
+        <div class="quick-actions">
+            <a href="{{ url_for('upload') }}" class="action-btn primary">
+                <span class="icon">&#8679;</span> Upload Bank Statements
+            </a>
+            <a href="{{ url_for('process') }}" class="action-btn secondary">
+                <span class="icon">&#9881;</span> Run Analysis
+            </a>
+            <a href="{{ url_for('results') }}" class="action-btn tertiary">
+                <span class="icon">&#9776;</span> View Reports
+            </a>
+        </div>
+    </section>
+
+    {% if results %}
+    <section class="dashboard-section">
+        <div class="section-header">
+            <h3>Recent Analyses</h3>
+            <a href="{{ url_for('results') }}" class="view-all">View All</a>
+        </div>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Merchant</th>
+                    <th>Risk</th>
+                    <th>Score</th>
+                    <th>Positions</th>
+                    <th>Max Funding</th>
+                    <th>Date</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in results[:5] %}
+                <tr>
+                    <td>{{ r.merchant_name }}</td>
+                    <td>
+                        <span class="tier-badge tier-{{ r.risk_tier|lower }}">{{ r.risk_tier }}</span>
+                    </td>
+                    <td>{{ r.risk_score }}/100</td>
+                    <td>{{ r.positions_detected }}</td>
+                    <td>${{ "{:,.0f}".format(r.max_funding) }}</td>
+                    <td>{{ r.timestamp[:10] }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+    {% endif %}
+
+    <section class="dashboard-section">
+        <div class="section-header">
+            <h3>Analysis Pipeline</h3>
+        </div>
+        <div class="pipeline-steps">
+            <div class="pipeline-step">
+                <div class="step-number">1</div>
+                <h4>OCR</h4>
+                <p>PDF extraction</p>
+            </div>
+            <div class="pipeline-arrow">&#8594;</div>
+            <div class="pipeline-step">
+                <div class="step-number">2</div>
+                <h4>Scrub</h4>
+                <p>Net revenue</p>
+            </div>
+            <div class="pipeline-arrow">&#8594;</div>
+            <div class="pipeline-step">
+                <div class="step-number">3</div>
+                <h4>Risk</h4>
+                <p>Score & flags</p>
+            </div>
+            <div class="pipeline-arrow">&#8594;</div>
+            <div class="pipeline-step">
+                <div class="step-number">4</div>
+                <h4>Positions</h4>
+                <p>MCA detection</p>
+            </div>
+            <div class="pipeline-arrow">&#8594;</div>
+            <div class="pipeline-step">
+                <div class="step-number">5</div>
+                <h4>Match</h4>
+                <p>Lender criteria</p>
+            </div>
+            <div class="pipeline-arrow">&#8594;</div>
+            <div class="pipeline-step">
+                <div class="step-number">6</div>
+                <h4>Report</h4>
+                <p>Excel output</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="dashboard-section">
+        <div class="section-header">
+            <h3>Recent Reports</h3>
+            <a href="{{ url_for('results') }}" class="view-all">View All</a>
+        </div>
+        {% if reports %}
+        <table class="data-table">
+            <thead>
+                <tr><th>Report</th><th>Type</th><th>Size</th><th>Created</th><th>Action</th></tr>
+            </thead>
+            <tbody>
+                {% for report in reports[:5] %}
+                <tr>
+                    <td>{{ report.name }}</td>
+                    <td><span class="badge badge-{{ report.type|lower }}">{{ report.type }}</span></td>
+                    <td>{{ report.size }} KB</td>
+                    <td>{{ report.created }}</td>
+                    <td><a href="{{ url_for('download_file', filename=report.name) }}" class="btn-sm btn-primary">Download</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>No reports generated yet</p>
+        </div>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

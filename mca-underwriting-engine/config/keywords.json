@@ -1,0 +1,141 @@
+{
+  "mca_lenders_tier1_major": {
+    "OnDeck": ["ONDECK", "OD CAP", "ONDECK CAP", "ONDECK CAPITAL", "OD LLC", "ACH DEBIT ONDECK"],
+    "Kabbage": ["KABBAGE", "KABBAGE INC", "KAB FUNDING"],
+    "BlueVine": ["BLUEVINE", "BLUE VINE", "BLUEVINE CAPITAL"],
+    "Fundbox": ["FUNDBOX", "FUND BOX", "FUNDBOX INC"],
+    "Forward Financing": ["FORWARD FIN", "FORWARD FINANCING", "FWD FINANCING", "FWD FIN"],
+    "Libertas": ["LIBERTAS", "LIBERTAS FUNDING", "LIBERTAS CAP"],
+    "CAN Capital": ["CAN CAPITAL", "CAN CAP", "CANCAP", "C A N CAPITAL"],
+    "Credibly": ["CREDIBLY", "CREDIBLY INC"],
+    "TVT Capital": ["TVT", "TVT CAPITAL", "TVT CAP"],
+    "Yellowstone Capital": ["YELLOWSTONE", "YELLOWSTONE CAP", "YS CAPITAL"],
+    "Rapid Finance": ["RAPID FINANCE", "RAPID FIN", "RAPIDFINANCE"],
+    "National Funding": ["NATIONAL FUNDING", "NATL FUNDING", "NAT FUNDING"],
+    "Clearco": ["CLEARCO", "CLEARBANC", "CLEAR CO"],
+    "Payability": ["PAYABILITY", "PAYABILITY INC"],
+    "Mulligan Funding": ["MULLIGAN", "MULLIGAN FUNDING", "MULLIGAN CAP"],
+    "Reliant Funding": ["RELIANT", "RELIANT FUNDING", "RELIANT CAP"],
+    "Everest Business Funding": ["EVEREST", "EVEREST BUS", "EVEREST FUNDING"],
+    "Quick Bridge": ["QUICK BRIDGE", "QUICKBRIDGE", "QB FUNDING"],
+    "Mantis Funding": ["MANTIS", "MANTIS FUNDING", "MANTIS CAP"],
+    "Capytal": ["CAPYTAL", "CAPYTAL INC"],
+    "Unique Funding": ["UNIQUE FUNDING", "UNIQUE FUND", "UNIQUE CAP"]
+  },
+  "mca_lenders_tier2_growing": {
+    "World Business Lenders": ["WORLD BUS", "WBL", "WORLD BUSINESS"],
+    "Fox Business Funding": ["FOX BUS", "FOX FUNDING", "FOX BUSINESS"],
+    "Samson MCA": ["SAMSON", "SAMSON MCA", "SAMSON CAP"],
+    "Pearl Capital": ["PEARL", "PEARL CAP", "PEARL CAPITAL"],
+    "Kalamata Capital": ["KALAMATA", "KALAMATA CAP", "KALAMATA CAPITAL"],
+    "Greenbox Capital": ["GREENBOX", "GREEN BOX", "GREENBOX CAP"],
+    "Fundry": ["FUNDRY", "FUNDRY INC"],
+    "BFS Capital": ["BFS", "BFS CAPITAL", "BFS CAP"],
+    "Fora Financial": ["FORA", "FORA FIN", "FORA FINANCIAL"],
+    "Celtic Capital": ["CELTIC", "CELTIC CAP", "CELTIC CAPITAL"],
+    "United Capital Source": ["UNITED CAP", "UCS", "UNITED CAPITAL"],
+    "Business Backer": ["BUSINESS BACKER", "BUS BACKER", "BACKER"],
+    "Lending Valley": ["LENDING VALLEY", "LENDINGVALLEY", "LV FUNDING"],
+    "Platinum Rapid Funding": ["PLATINUM RAPID", "PLAT RAPID", "PRF"],
+    "Elevate Funding": ["ELEVATE", "ELEVATE FUNDING", "ELEVATE CAP"]
+  },
+  "mca_lenders_tier3_fintech": {
+    "Shopify Capital": ["SHOPIFY", "SHOPIFY CAP", "SHOPIFY CAPITAL"],
+    "Square Capital": ["SQUARE CAP", "SQUARE CAPITAL", "SQ CAPITAL"],
+    "Stripe Capital": ["STRIPE CAP", "STRIPE CAPITAL"],
+    "PayPal Working Capital": ["PAYPAL WC", "PAYPAL WORK CAP", "PPWC"],
+    "Amazon Lending": ["AMAZON LEND", "AMZN LENDING", "AMAZON CAPITAL"],
+    "Parafin": ["PARAFIN", "PARAFIN INC"],
+    "Wayflyer": ["WAYFLYER", "WAY FLYER"],
+    "Settle": ["SETTLE", "SETTLE INC"],
+    "Pipe": ["PIPE", "PIPE INC", "PIPE TECHNOLOGIES"],
+    "Capchase": ["CAPCHASE", "CAP CHASE"],
+    "Arc Technologies": ["ARC TECH", "ARC TECHNOLOGIES", "ARC"],
+    "Ramp": ["RAMP", "RAMP INC"],
+    "Brex": ["BREX", "BREX INC"],
+    "Mercury Treasury": ["MERCURY", "MERCURY TREASURY"]
+  },
+  "mca_lenders_tier4_regional": {
+    "NewCo Capital": ["NEWCO", "NEWCO CAP", "NEWCO CAPITAL"],
+    "Itria Ventures": ["ITRIA", "ITRIA VENTURES", "ITRIA CAP"],
+    "CFG Merchant Solutions": ["CFG", "CFG MERCHANT", "CFG SOLUTIONS"],
+    "Prestige Capital": ["PRESTIGE", "PRESTIGE CAP", "PRESTIGE CAPITAL"],
+    "Lendr": ["LENDR", "LENDR INC"],
+    "Max Advance": ["MAX ADV", "MAX ADVANCE", "MAXADVANCE"],
+    "Delta Bridge Funding": ["DELTA BRIDGE", "DELTA FUNDING", "DBF"],
+    "Accord Business Funding": ["ACCORD", "ACCORD BUS", "ACCORD FUNDING"],
+    "Express Business Funding": ["EXPRESS BUS", "EXPRESS FUNDING", "EBF"],
+    "Velocity Capital": ["VELOCITY", "VELOCITY CAP", "VELOCITY CAPITAL"],
+    "Shield Funding": ["SHIELD", "SHIELD FUNDING", "SHIELD CAP"],
+    "Priority Funding": ["PRIORITY", "PRIORITY FUNDING", "PRIORITY CAP"]
+  },
+  "generic_mca_keywords": [
+    "LOAN PYMT", "LOAN PMT", "LOAN PAYMENT",
+    "MERCHANT ADV", "MERCHANT ADVANCE", "MCA PMT", "MCA PYMT",
+    "SPLIT FUND", "SPLIT PYMT", "DAILY ACH", "DAILY DEBIT",
+    "BUSINESS LOAN", "BUS LOAN", "COMMERCIAL FUND",
+    "CAPITAL ADV", "CAP ADVANCE", "FUNDING PMT"
+  ],
+  "nsf_keywords": [
+    "NSF", "NON-SUFFICIENT", "INSUFFICIENT FUNDS", "INSUFF FUNDS",
+    "OVERDRAFT FEE", "OD FEE", "OVERDRAFT CHG", "OD CHARGE",
+    "RETURNED ITEM", "RETURNED CHECK", "RETURN ITEM FEE",
+    "OVERDRAFT PROTECTION", "OD PROTECTION"
+  ],
+  "internal_transfer_keywords": [
+    "ONLINE TRANSFER", "TRANSFER FROM", "TRANSFER TO",
+    "INTERNAL TRANSFER", "XFER FROM", "XFER TO",
+    "MOBILE TRANSFER", "SAVE TRANSFER", "SAVINGS TRANSFER",
+    "ACCOUNT TRANSFER", "ACCT TRANSFER", "ACCT XFER"
+  ],
+  "owner_deposit_keywords": [
+    "OWNER DEPOSIT", "OWNER CONTRIBUTION", "OWNER INJECT",
+    "SHAREHOLDER DEPOSIT", "MEMBER CONTRIBUTION",
+    "CAPITAL CONTRIBUTION", "EQUITY INJECT", "PERSONAL DEPOSIT"
+  ],
+  "loan_proceed_keywords": [
+    "LOAN PROCEEDS", "LOAN DEPOSIT", "FUNDING DEPOSIT",
+    "ADVANCE DEPOSIT", "MCA DEPOSIT", "MERCHANT ADVANCE",
+    "CAPITAL DEPOSIT", "BUSINESS FUNDING"
+  ],
+  "exclude_from_revenue": [
+    "TAX REFUND", "IRS REFUND", "STATE REFUND",
+    "INSURANCE PAYOUT", "INSURANCE CLAIM", "INS SETTLEMENT",
+    "REVERSAL", "CREDIT REVERSAL", "REFUND", "CHARGEBACK REVERSAL"
+  ],
+  "gambling_keywords": [
+    "CASINO", "GAMBLING", "SLOT", "POKER",
+    "DRAFTKINGS", "FANDUEL", "BETMGM", "CAESARS SPORTS",
+    "POINTSBET", "BARSTOOL", "BET365", "BOVADA"
+  ],
+  "red_flag_keywords": [
+    "GARNISHMENT", "WAGE GARNISH", "COURT ORDER",
+    "TAX LEVY", "IRS LEVY", "STATE LEVY", "TAX LIEN",
+    "JUDGMENT", "LEGAL JUDGMENT", "BANKRUPTCY", "BK TRUSTEE"
+  ],
+  "cash_deposit_keywords": [
+    "CASH DEPOSIT", "CASH DEP", "COUNTER DEPOSIT",
+    "ATM DEPOSIT", "ATM DEP", "ATM CREDIT", "BRANCH DEPOSIT"
+  ],
+  "expense_categories": {
+    "payroll": ["PAYROLL", "PAYCHEX", "ADP", "GUSTO", "QUICKBOOKS PAYROLL"],
+    "rent": ["RENT", "LEASE PMT", "PROPERTY MGMT", "LANDLORD"],
+    "utilities": ["ELECTRIC", "GAS BILL", "WATER", "INTERNET", "COMCAST", "VERIZON"],
+    "taxes": ["IRS", "EFTPS", "FEDERAL TAX", "STATE TAX", "SALES TAX"],
+    "insurance": ["INSURANCE", "INS PREMIUM", "LIABILITY INS", "WORKERS COMP"],
+    "merchant_processing": ["STRIPE FEE", "SQUARE FEE", "MERCHANT FEE", "PROCESSING FEE"]
+  },
+  "cc_processor_keywords": [
+    "STRIPE", "SQUARE", "PAYPAL", "SHOPIFY", "CLOVER", "TOAST"
+  ],
+  "fraud_pdf_keywords": [
+    "PHOTOSHOP", "ADOBE PHOTOSHOP", "CANVA", "GIMP", "PIXLR"
+  ],
+  "bank_name_patterns": [
+    "CHASE", "WELLS FARGO", "BANK OF AMERICA", "BOA",
+    "TRUIST", "PNC", "US BANK", "TD BANK", "CAPITAL ONE",
+    "CITIZENS", "HUNTINGTON", "REGIONS", "FIFTH THIRD",
+    "M&T BANK", "KEY BANK", "BMO", "SANTANDER", "CITIBANK",
+    "MERCURY", "RELAY", "BLUEVINE", "NOVO", "AXOS"
+  ]
+}
