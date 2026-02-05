@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block title %}Results - MCA Underwriting Command Center{% endblock %}
+{% block page_title %}Processing Results & Reports{% endblock %}
+
+{% block content %}
+<div class="results-sections">
+    <section class="results-section">
+        <div class="section-header">
+            <h3>Processing History</h3>
+        </div>
+        
+        {% if processed_results %}
+        <div class="results-grid">
+            {% for result in processed_results %}
+            <div class="result-card">
+                <div class="result-header">
+                    <h4>{{ result.filename }}</h4>
+                    <span class="status-badge {{ result.status }}">{{ result.status|capitalize }}</span>
+                </div>
+                <div class="result-body">
+                    <p class="timestamp">Processed: {{ result.timestamp }}</p>
+                    {% if result.steps %}
+                    <ul class="step-list">
+                        {% for step in result.steps %}
+                        <li class="step-item {{ step.status }}">
+                            <span class="step-icon">{% if step.status == 'complete' %}&#10003;{% else %}&#9675;{% endif %}</span>
+                            <span class="step-name">{{ step.name }}</span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <p>No files have been processed yet</p>
+            <a href="{{ url_for('process') }}" class="btn-link">Process files now</a>
+        </div>
+        {% endif %}
+    </section>
+    
+    <section class="results-section">
+        <div class="section-header">
+            <h3>Generated Reports</h3>
+            <span class="report-count">{{ reports|length }} report(s)</span>
+        </div>
+        
+        {% if reports %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Report Name</th>
+                    <th>Type</th>
+                    <th>Size</th>
+                    <th>Created</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for report in reports %}
+                <tr>
+                    <td>
+                        <span class="report-icon">{% if report.type == 'Excel' %}&#128202;{% else %}&#128196;{% endif %}</span>
+                        {{ report.name }}
+                    </td>
+                    <td>
+                        <span class="badge badge-{{ report.type|lower }}">{{ report.type }}</span>
+                    </td>
+                    <td>{{ report.size }} KB</td>
+                    <td>{{ report.created }}</td>
+                    <td>
+                        <a href="{{ url_for('download_file', filename=report.name) }}" class="btn-sm btn-primary">
+                            Download
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-icon">&#128202;</div>
+            <p>No reports generated yet</p>
+            <p class="hint">Process bank statements to generate analysis reports</p>
+        </div>
+        {% endif %}
+    </section>
+</div>
+
+<section class="results-section info-section">
+    <div class="section-header">
+        <h3>Report Contents</h3>
+    </div>
+    <div class="report-info-grid">
+        <div class="info-card">
+            <h4>Summary Sheet</h4>
+            <p>Executive summary with key metrics, risk score, and recommended position size.</p>
+        </div>
+        <div class="info-card">
+            <h4>Transactions</h4>
+            <p>Detailed list of all transactions with categories and flags.</p>
+        </div>
+        <div class="info-card">
+            <h4>Monthly Analysis</h4>
+            <p>Month-over-month revenue breakdown and trending.</p>
+        </div>
+        <div class="info-card">
+            <h4>Risk Analysis</h4>
+            <p>NSF count, negative days, cash activity, existing MCA detection.</p>
+        </div>
+        <div class="info-card">
+            <h4>Lender Matches</h4>
+            <p>Ranked list of eligible lenders with match scores.</p>
+        </div>
+    </div>
+</section>
+{% endblock %}

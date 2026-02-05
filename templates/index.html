@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - MCA Underwriting Command Center{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="dashboard-grid">
+    <div class="stat-card">
+        <div class="stat-icon upload-icon">&#8679;</div>
+        <div class="stat-info">
+            <h3>{{ file_count }}</h3>
+            <p>Uploaded Files</p>
+        </div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon report-icon">&#9776;</div>
+        <div class="stat-info">
+            <h3>{{ report_count }}</h3>
+            <p>Generated Reports</p>
+        </div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon status-icon">&#10003;</div>
+        <div class="stat-info">
+            <h3>Ready</h3>
+            <p>System Status</p>
+        </div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon shell-icon">&#9881;</div>
+        <div class="stat-info">
+            <h3>Shell</h3>
+            <p>Build Mode</p>
+        </div>
+    </div>
+</div>
+
+<div class="dashboard-sections">
+    <section class="dashboard-section">
+        <div class="section-header">
+            <h3>Quick Actions</h3>
+        </div>
+        <div class="quick-actions">
+            <a href="{{ url_for('upload') }}" class="action-btn primary">
+                <span class="icon">&#8679;</span>
+                Upload Bank Statements
+            </a>
+            <a href="{{ url_for('process') }}" class="action-btn secondary">
+                <span class="icon">&#9881;</span>
+                Process Files
+            </a>
+            <a href="{{ url_for('results') }}" class="action-btn tertiary">
+                <span class="icon">&#9776;</span>
+                View Reports
+            </a>
+        </div>
+    </section>
+    
+    <section class="dashboard-section">
+        <div class="section-header">
+            <h3>Recent Uploads</h3>
+            <a href="{{ url_for('upload') }}" class="view-all">View All</a>
+        </div>
+        {% if files %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Filename</th>
+                    <th>Size</th>
+                    <th>Uploaded</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for file in files[:5] %}
+                <tr>
+                    <td>{{ file.name }}</td>
+                    <td>{{ file.size }} KB</td>
+                    <td>{{ file.uploaded }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>No files uploaded yet</p>
+            <a href="{{ url_for('upload') }}" class="btn-link">Upload your first bank statement</a>
+        </div>
+        {% endif %}
+    </section>
+    
+    <section class="dashboard-section">
+        <div class="section-header">
+            <h3>Recent Reports</h3>
+            <a href="{{ url_for('results') }}" class="view-all">View All</a>
+        </div>
+        {% if reports %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Report</th>
+                    <th>Type</th>
+                    <th>Created</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for report in reports[:5] %}
+                <tr>
+                    <td>{{ report.name }}</td>
+                    <td><span class="badge badge-{{ report.type|lower }}">{{ report.type }}</span></td>
+                    <td>{{ report.created }}</td>
+                    <td><a href="{{ url_for('download_file', filename=report.name) }}" class="btn-sm">Download</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>No reports generated yet</p>
+            <a href="{{ url_for('process') }}" class="btn-link">Process files to generate reports</a>
+        </div>
+        {% endif %}
+    </section>
+</div>
+
+<section class="dashboard-section pipeline-overview">
+    <div class="section-header">
+        <h3>Processing Pipeline</h3>
+    </div>
+    <div class="pipeline-steps">
+        <div class="pipeline-step">
+            <div class="step-number">1</div>
+            <h4>OCR Extraction</h4>
+            <p>Extract text from PDF bank statements</p>
+            <span class="status-badge pending">TODO</span>
+        </div>
+        <div class="pipeline-arrow">&#8594;</div>
+        <div class="pipeline-step">
+            <div class="step-number">2</div>
+            <h4>Scrubbing</h4>
+            <p>Clean and categorize transactions</p>
+            <span class="status-badge pending">TODO</span>
+        </div>
+        <div class="pipeline-arrow">&#8594;</div>
+        <div class="pipeline-step">
+            <div class="step-number">3</div>
+            <h4>Risk Analysis</h4>
+            <p>Calculate NSFs, negative days, DTI</p>
+            <span class="status-badge pending">TODO</span>
+        </div>
+        <div class="pipeline-arrow">&#8594;</div>
+        <div class="pipeline-step">
+            <div class="step-number">4</div>
+            <h4>Lender Matching</h4>
+            <p>Find eligible lenders</p>
+            <span class="status-badge pending">TODO</span>
+        </div>
+        <div class="pipeline-arrow">&#8594;</div>
+        <div class="pipeline-step">
+            <div class="step-number">5</div>
+            <h4>Report Generation</h4>
+            <p>Create Master Excel report</p>
+            <span class="status-badge pending">TODO</span>
+        </div>
+    </div>
+</section>
+{% endblock %}

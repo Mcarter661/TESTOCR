@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}Process - MCA Underwriting Command Center{% endblock %}
+{% block page_title %}Process Bank Statements{% endblock %}
+
+{% block content %}
+<div class="process-info">
+    <div class="info-box">
+        <h4>Processing Pipeline</h4>
+        <p>Select files below and click "Start Processing" to run them through the underwriting pipeline:</p>
+        <ol class="pipeline-list">
+            <li><strong>OCR Extraction</strong> - Extract text from PDF bank statements</li>
+            <li><strong>Transaction Scrubbing</strong> - Clean data, identify transfers, calculate net revenue</li>
+            <li><strong>Risk Analysis</strong> - Count NSFs, negative days, calculate DTI, flag cash activity</li>
+            <li><strong>Lender Matching</strong> - Match applicant profile against lender criteria</li>
+            <li><strong>Report Generation</strong> - Generate Master Excel report with all analysis</li>
+        </ol>
+        <p class="note"><strong>Note:</strong> This is a shell build. Pipeline functions contain TODO stubs.</p>
+    </div>
+</div>
+
+{% if files %}
+<form action="{{ url_for('process') }}" method="post" class="process-form">
+    <div class="file-selection">
+        <div class="selection-header">
+            <label class="select-all">
+                <input type="checkbox" id="selectAll" onchange="toggleAll()">
+                Select All ({{ files|length }} files)
+            </label>
+        </div>
+        
+        <div class="file-grid">
+            {% for file in files %}
+            <label class="file-card">
+                <input type="checkbox" name="selected_files" value="{{ file.name }}" class="file-checkbox">
+                <div class="file-card-content">
+                    <div class="file-icon">&#128196;</div>
+                    <div class="file-info">
+                        <h4>{{ file.name }}</h4>
+                        <p>{{ file.size }} KB | {{ file.uploaded }}</p>
+                    </div>
+                </div>
+            </label>
+            {% endfor %}
+        </div>
+    </div>
+    
+    <div class="process-actions">
+        <button type="submit" class="btn btn-primary btn-large" id="processBtn">
+            <span class="icon">&#9881;</span>
+            Start Processing
+        </button>
+    </div>
+</form>
+{% else %}
+<div class="empty-state large">
+    <div class="empty-icon">&#128196;</div>
+    <h3>No Files to Process</h3>
+    <p>Upload bank statement PDFs first to begin processing.</p>
+    <a href="{{ url_for('upload') }}" class="btn btn-primary">
+        <span class="icon">&#8679;</span>
+        Upload Files
+    </a>
+</div>
+{% endif %}
+
+<script>
+function toggleAll() {
+    const selectAll = document.getElementById('selectAll');
+    const checkboxes = document.querySelectorAll('.file-checkbox');
+    checkboxes.forEach(cb => cb.checked = selectAll.checked);
+}
+
+document.querySelectorAll('.file-checkbox').forEach(cb => {
+    cb.addEventListener('change', () => {
+        const allChecked = document.querySelectorAll('.file-checkbox:checked').length;
+        const total = document.querySelectorAll('.file-checkbox').length;
+        document.getElementById('selectAll').checked = allChecked === total;
+    });
+});
+</script>
+{% endblock %}

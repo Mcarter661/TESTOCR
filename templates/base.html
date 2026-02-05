@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}MCA Underwriting Command Center{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <h1>MCA Command</h1>
+            <p>Underwriting Center</p>
+        </div>
+        <ul class="nav-menu">
+            <li class="{% if request.endpoint == 'index' %}active{% endif %}">
+                <a href="{{ url_for('index') }}">
+                    <span class="icon">&#9632;</span>
+                    Dashboard
+                </a>
+            </li>
+            <li class="{% if request.endpoint == 'upload' %}active{% endif %}">
+                <a href="{{ url_for('upload') }}">
+                    <span class="icon">&#8679;</span>
+                    Upload
+                </a>
+            </li>
+            <li class="{% if request.endpoint == 'process' %}active{% endif %}">
+                <a href="{{ url_for('process') }}">
+                    <span class="icon">&#9881;</span>
+                    Process
+                </a>
+            </li>
+            <li class="{% if request.endpoint == 'results' %}active{% endif %}">
+                <a href="{{ url_for('results') }}">
+                    <span class="icon">&#9776;</span>
+                    Results
+                </a>
+            </li>
+        </ul>
+        <div class="sidebar-footer">
+            <p>v1.0 - Shell Build</p>
+        </div>
+    </nav>
+    
+    <main class="content">
+        <header class="content-header">
+            <h2>{% block page_title %}Dashboard{% endblock %}</h2>
+            <div class="header-actions">
+                {% block header_actions %}{% endblock %}
+            </div>
+        </header>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-messages">
+                    {% for category, message in messages %}
+                        <div class="flash flash-{{ category }}">
+                            {{ message }}
+                            <button class="flash-close" onclick="this.parentElement.remove()">&times;</button>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+        
+        <div class="content-body">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+</body>
+</html>
