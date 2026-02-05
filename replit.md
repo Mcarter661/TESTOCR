@@ -98,6 +98,42 @@ Web-based bank statement analysis system for MCA (Merchant Cash Advance) underwr
 - **D**: Score 51-70, higher rates, shorter terms
 - **Decline**: Score 71+, not recommended
 
+## Enhanced MCA Detection
+The system uses ACH identifier patterns to identify specific MCA lenders:
+- eFinancialTree (9144978400)
+- CAPYBARA (5612081085)
+- Ivy Receivables/Fox (7183166893)
+- Rauch-Milliken (D002)
+- DoorDash Capital, SL Recovery, SpotOn (MINPMT)
+- And 50+ additional lender patterns
+
+## Reverse Engineering
+For each detected MCA position, the system calculates:
+- **Average Payment**: Based on transaction history
+- **Payment Frequency**: Daily, weekly, bi-weekly, monthly
+- **Monthly Cost**: Extrapolated from payment frequency
+- **Estimated Funding**: Original funding amount (using 1.35x factor, 6-month term)
+- **Estimated Remaining**: Balance owed based on payments made
+
+## Red Flags Detection
+- Heavy Stacking (5+ positions) - CRITICAL
+- Moderate Stacking (3+ positions) - HIGH
+- Very Recent Funding (<14 days) - CRITICAL
+- Recent Funding (14-30 days) - HIGH
+- High Monthly Debt (>$25K) - CRITICAL
+- Returned/Reversed Deposits - HIGH
+- Stopped MCA Payments - HIGH
+
+## Excel Report Tabs (8 tabs)
+1. **Summary**: Account info, revenue metrics, risk assessment
+2. **Transactions**: Full transaction detail with filtering
+3. **Monthly Analysis**: Cash flow trends with charts
+4. **Risk Analysis**: NSF, negative days, gambling detection
+5. **MCA Positions**: Reverse-engineered positions with payment tracking
+6. **Funding Analysis**: Wire transfers, revenue sources, recurring expenses
+7. **Red Flags**: Critical warnings and alerts
+8. **Lender Matches**: Eligibility scores for 5 default lenders
+
 ## Dependencies
 - Flask: Web framework
 - pandas: Data manipulation
@@ -109,9 +145,12 @@ Web-based bank statement analysis system for MCA (Merchant Cash Advance) underwr
 The web server runs automatically on port 5000.
 
 ## Recent Changes
-- February 5, 2026: Implemented all core processing modules with full logic
-  - Complete OCR extraction with multi-bank support
-  - Transaction scrubbing with transfer detection
-  - Risk analysis with NSF, negative days, MCA detection
-  - Lender matching against 5 default profiles
-  - Multi-tab Excel report generation
+- February 5, 2026: Enhanced MCA detection and analysis
+  - ACH identifier patterns for 20+ lenders
+  - Reverse-engineering of MCA positions (funding, remaining balance)
+  - Payment change tracking (increased/decreased/stopped)
+  - Funding event detection (wires, large deposits)
+  - Revenue source categorization (Shift4, DoorDash, SpotOn, Square)
+  - Recurring expense analysis (payroll, suppliers, rent, utilities)
+  - Red flag detection (stacking, recent funding, returns)
+  - Expanded Excel report to 8 tabs

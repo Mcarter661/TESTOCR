@@ -675,14 +675,11 @@ def generate_master_report(
     if risk_profile:
         add_risk_analysis_sheet(workbook, risk_profile, formats)
         
-        if risk_profile.get('mca_positions', {}).get('mca_positions'):
-            add_mca_positions_sheet(workbook, risk_profile, formats)
+        add_mca_positions_sheet(workbook, risk_profile, formats)
         
-        if risk_profile.get('funding_analysis', {}).get('funding_events') or risk_profile.get('revenue_sources', {}).get('sources'):
-            add_funding_analysis_sheet(workbook, risk_profile, formats)
+        add_funding_analysis_sheet(workbook, risk_profile, formats)
         
-        if risk_profile.get('red_flags', {}).get('red_flags'):
-            add_red_flags_sheet(workbook, risk_profile, formats)
+        add_red_flags_sheet(workbook, risk_profile, formats)
     
     if lender_matches:
         add_lender_matches_sheet(workbook, lender_matches, formats)

@@ -264,6 +264,24 @@ def identify_mca_lender(description: str) -> Optional[str]:
     return None
 
 
+def parse_date_flexible(date_val) -> Optional[datetime]:
+    """
+    Parse date from various formats.
+    """
+    if isinstance(date_val, datetime):
+        return date_val
+    if not isinstance(date_val, str) or not date_val:
+        return None
+    
+    formats = ['%Y-%m-%d', '%m/%d/%Y', '%m-%d-%Y', '%d/%m/%Y', '%m/%d/%y', '%Y%m%d']
+    for fmt in formats:
+        try:
+            return datetime.strptime(date_val.strip(), fmt)
+        except ValueError:
+            continue
+    return None
+
+
 def detect_payment_frequency(dates: List[str]) -> str:
     """
     Determine payment frequency from list of payment dates.
@@ -272,7 +290,16 @@ def detect_payment_frequency(dates: List[str]) -> str:
         return 'unknown'
     
     try:
-        date_objs = sorted([datetime.strptime(d, '%Y-%m-%d') if isinstance(d, str) else d for d in dates])
+        date_objs = []
+        for d in dates:
+            parsed = parse_date_flexible(d)
+            if parsed:
+                date_objs.append(parsed)
+        
+        if len(date_objs) < 2:
+            return 'unknown'
+        
+        date_objs.sort()
         gaps = [(date_objs[i+1] - date_objs[i]).days for i in range(len(date_objs)-1)]
         avg_gap = sum(gaps) / len(gaps) if gaps else 0
         
@@ -482,6 +509,7 @@ def detect_existing_mca_payments(transactions: List[Dict]) -> Dict:
 def detect_funding_events(transactions: List[Dict]) -> Dict:
     """
     Detect likely MCA funding events (large incoming wires/deposits).
+    Includes both wire transfers and large deposits that could be funding.
     """
     funding_events = []
     
@@ -504,6 +532,11 @@ def detect_funding_events(transactions: List[Dict]) -> Dict:
             is_funding = True
             funding_type = 'wire'
         
+        if credit >= 10000 and not is_funding:
+            if not re.search(r'shift4|square|stripe|clover|toast|doordash|grubhub|uber', desc_lower):
+                is_funding = True
+                funding_type = 'large_deposit'
+        
         if is_funding:
             is_likely_mca = credit >= 10000 and credit <= 150000
             
@@ -519,10 +552,10 @@ def detect_funding_events(transactions: List[Dict]) -> Dict:
     
     most_recent = funding_events[0] if funding_events else None
     if most_recent:
-        try:
-            last_date = datetime.strptime(most_recent['date'], '%Y-%m-%d')
-            days_since = (datetime.now() - last_date).days
-        except:
+        parsed_date = parse_date_flexible(most_recent['date'])
+        if parsed_date:
+            days_since = (datetime.now() - parsed_date).days
+        else:
             days_since = 999
     else:
         days_since = 999
