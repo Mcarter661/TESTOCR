@@ -701,13 +701,13 @@ def detect_red_flags(transactions: List[Dict], mca_data: Dict, funding_data: Dic
         })
     
     days_since_funding = funding_data.get('days_since_last_funding', 999)
-    if days_since_funding <= 14:
+    if 0 <= days_since_funding <= 14:
         red_flags.append({
             'flag': 'VERY_RECENT_FUNDING',
             'severity': 'critical',
             'detail': f'Most recent funding only {days_since_funding} days ago',
         })
-    elif days_since_funding <= 30:
+    elif 0 <= days_since_funding <= 30:
         red_flags.append({
             'flag': 'RECENT_FUNDING',
             'severity': 'high',
@@ -721,22 +721,33 @@ def detect_red_flags(transactions: List[Dict], mca_data: Dict, funding_data: Dic
             'severity': 'critical',
             'detail': f'Monthly MCA payments: ${total_monthly_debt:,.0f}',
         })
+    elif total_monthly_debt >= 15000:
+        red_flags.append({
+            'flag': 'ELEVATED_MONTHLY_DEBT',
+            'severity': 'high',
+            'detail': f'Monthly MCA payments: ${total_monthly_debt:,.0f}',
+        })
     
     returned_deposits = []
     returned_total = 0
+    return_item_count = 0
     for txn in transactions:
         desc = txn.get('description', '').lower()
-        if 'returned' in desc or 'reversal' in desc or 'chargeback' in desc:
-            debit = txn.get('debit', 0)
+        debit = txn.get('debit', 0)
+        if 'return deposit item' in desc or 'returned item' in desc:
+            return_item_count += 1
             if debit > 0:
                 returned_deposits.append(txn)
                 returned_total += debit
+        elif ('returned' in desc or 'reversal' in desc or 'chargeback' in desc) and debit > 0:
+            returned_deposits.append(txn)
+            returned_total += debit
     
-    if returned_total >= 10000:
+    if return_item_count >= 3 or returned_total >= 10000:
         red_flags.append({
-            'flag': 'HIGH_RETURNED_DEPOSITS',
+            'flag': 'RETURNED_DEPOSITS',
             'severity': 'high',
-            'detail': f'${returned_total:,.0f} in returned/reversed deposits',
+            'detail': f'{return_item_count} returned items, ${returned_total:,.0f} total',
         })
     
     payment_changes = mca_data.get('payment_changes', {})
@@ -748,12 +759,31 @@ def detect_red_flags(transactions: List[Dict], mca_data: Dict, funding_data: Dic
             'detail': f'{stopped_count} MCA positions show stopped payments',
         })
     
+    dates = [txn.get('date') for txn in transactions if txn.get('date')]
+    if dates:
+        try:
+            parsed_dates = [parse_date_flexible(d) for d in dates if d]
+            parsed_dates = [d for d in parsed_dates if d]
+            if parsed_dates:
+                earliest = min(parsed_dates)
+                latest = max(parsed_dates)
+                statement_span = (latest - earliest).days
+                if statement_span <= 60:
+                    red_flags.append({
+                        'flag': 'NEW_BANK_ACCOUNT',
+                        'severity': 'high',
+                        'detail': f'Only {statement_span} days of history available',
+                    })
+        except:
+            pass
+    
     return {
         'red_flags': red_flags,
         'critical_count': sum(1 for f in red_flags if f['severity'] == 'critical'),
         'high_count': sum(1 for f in red_flags if f['severity'] == 'high'),
         'has_critical': any(f['severity'] == 'critical' for f in red_flags),
         'returned_total': returned_total,
+        'return_item_count': return_item_count,
     }
 
 

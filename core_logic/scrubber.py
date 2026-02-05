@@ -345,6 +345,36 @@ def detect_seasonality(monthly_data: pd.DataFrame) -> Dict:
     }
 
 
+def fix_debit_credit_from_description(transactions: List[Dict]) -> List[Dict]:
+    """
+    Fix debit/credit classification based on transaction description.
+    Some parsers incorrectly classify debits as credits if the description contains DEBIT keywords.
+    """
+    debit_keywords = ['ach debit', 'ach corp debit', 'debit card', 'withdrawal', 'wire out', 'outgoing wire']
+    credit_keywords = ['ach credit', 'deposit', 'wire in', 'incoming wire', 'rtp credit']
+    
+    fixed = []
+    for txn in transactions:
+        txn = txn.copy()
+        desc = txn.get('description', '').lower()
+        debit = txn.get('debit', 0)
+        credit = txn.get('credit', 0)
+        
+        if credit > 0 and debit == 0 and any(kw in desc for kw in debit_keywords):
+            if not any(kw in desc for kw in credit_keywords):
+                txn['debit'] = credit
+                txn['credit'] = 0
+        
+        if debit > 0 and credit == 0 and any(kw in desc for kw in credit_keywords):
+            if not any(kw in desc for kw in debit_keywords):
+                txn['credit'] = debit
+                txn['debit'] = 0
+        
+        fixed.append(txn)
+    
+    return fixed
+
+
 def scrub_transactions(transactions: List[Dict]) -> Dict:
     """
     Main function to clean and analyze transactions.
@@ -352,6 +382,7 @@ def scrub_transactions(transactions: List[Dict]) -> Dict:
     """
     if not transactions:
         return {
+            'cleaned_transactions': [],
             'transactions': [],
             'transfers': [],
             'revenue_metrics': calculate_net_revenue([]),
@@ -361,7 +392,9 @@ def scrub_transactions(transactions: List[Dict]) -> Dict:
             'seasonality': {'is_seasonal': False, 'trend': 'insufficient_data', 'volatility': 0},
         }
     
-    revenue_txns, transfers = identify_internal_transfers(transactions)
+    fixed_transactions = fix_debit_credit_from_description(transactions)
+    
+    revenue_txns, transfers = identify_internal_transfers(fixed_transactions)
     
     categorized = rename_descriptions(revenue_txns)
     
@@ -376,6 +409,7 @@ def scrub_transactions(transactions: List[Dict]) -> Dict:
     seasonality = detect_seasonality(monthly_data)
     
     return {
+        'cleaned_transactions': categorized,
         'transactions': categorized,
         'transfers': transfers,
         'revenue_metrics': revenue_metrics,
