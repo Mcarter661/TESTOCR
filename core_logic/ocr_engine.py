@@ -39,11 +39,13 @@ DATE_PATTERNS = [
 AMOUNT_PATTERN = r'[\$]?\s*[\-\(]?\s*[\d,]+\.?\d{0,2}\s*[\)]?'
 
 
-def extract_text_from_pdf(pdf_path: str) -> str:
+def extract_text_from_pdf(pdf_path: str) -> Tuple[str, List[List]]:
     """
-    Extract raw text from a PDF bank statement using pdfplumber.
+    Extract raw text and table data from a PDF bank statement using pdfplumber.
+    Returns tuple of (full_text, all_tables).
     """
     full_text = []
+    all_tables = []
     
     try:
         with pdfplumber.open(pdf_path) as pdf:
@@ -51,18 +53,20 @@ def extract_text_from_pdf(pdf_path: str) -> str:
                 text = page.extract_text()
                 if text:
                     full_text.append(text)
-                    
+                
                 tables = page.extract_tables()
                 for table in tables:
-                    for row in table:
-                        if row:
-                            row_text = ' | '.join([str(cell) if cell else '' for cell in row])
-                            full_text.append(row_text)
+                    if table:
+                        all_tables.extend([row for row in table if row])
+                        for row in table:
+                            if row:
+                                row_text = ' | '.join([str(cell) if cell else '' for cell in row])
+                                full_text.append(row_text)
     except Exception as e:
         print(f"Error extracting PDF text: {e}")
-        return ""
+        return "", []
     
-    return '\n'.join(full_text)
+    return '\n'.join(full_text), all_tables
 
 
 def detect_bank_format(text: str) -> str:
@@ -125,24 +129,156 @@ def parse_amount(amount_str: str) -> Optional[float]:
         return None
 
 
-def extract_transactions_generic(text: str) -> List[Dict]:
+def extract_transactions_from_tables(tables: List[List]) -> List[Dict]:
     """
-    Generic transaction extraction for unknown bank formats.
+    Extract transactions from structured table data.
+    This is more reliable than text parsing for capturing full descriptions.
     """
     transactions = []
-    lines = text.split('\n')
     
-    transaction_pattern = re.compile(
-        r'(\d{1,2}[/\-]\d{1,2}[/\-]?\d{0,4})?\s*'
-        r'(.+?)\s+'
-        r'([\$\-\(]?\s*[\d,]+\.?\d{0,2}\s*[\)]?)\s*'
-        r'([\$\-\(]?\s*[\d,]+\.?\d{0,2}\s*[\)]?)?'
-    )
+    for row in tables:
+        if not row or len(row) < 2:
+            continue
+        
+        cells = [str(cell).strip() if cell else '' for cell in row]
+        
+        if any(header in ' '.join(cells).upper() for header in ['DATE', 'DESCRIPTION', 'AMOUNT', 'BALANCE', 'DEBIT', 'CREDIT', 'DEPOSITS', 'WITHDRAWALS']):
+            continue
+        
+        date_val = None
+        date_idx = -1
+        for i, cell in enumerate(cells):
+            for date_pattern in DATE_PATTERNS:
+                match = re.search(date_pattern, cell)
+                if match:
+                    date_val = parse_date(match.group(1))
+                    if date_val:
+                        date_idx = i
+                        break
+            if date_val:
+                break
+        
+        if not date_val:
+            continue
+        
+        amounts = []
+        amount_indices = []
+        for i, cell in enumerate(cells):
+            if i == date_idx:
+                continue
+            amt_match = re.search(r'[\$]?\s*[\-\(]?\s*([\d,]+\.\d{2})\s*[\)]?', cell)
+            if amt_match:
+                parsed_amt = parse_amount(cell)
+                if parsed_amt is not None:
+                    amounts.append((i, cell, parsed_amt))
+                    amount_indices.append(i)
+        
+        description_parts = []
+        for i, cell in enumerate(cells):
+            if i == date_idx or i in amount_indices:
+                continue
+            if cell and len(cell) > 1 and not re.match(r'^[\d\.\$\-\(\),\s]+$', cell):
+                description_parts.append(cell)
+        
+        description = ' '.join(description_parts).strip()
+        
+        if not description:
+            for i, cell in enumerate(cells):
+                if i != date_idx and cell and len(cell) > 3:
+                    if not re.match(r'^[\d\.\$\-\(\),\s]+$', cell):
+                        description = cell
+                        break
+        
+        if description and amounts:
+            amount_val = amounts[-1][2]
+            is_debit = '-' in amounts[-1][1] or '(' in amounts[-1][1]
+            
+            if len(amounts) >= 2:
+                debit_amt = abs(amounts[0][2]) if amounts[0][2] else 0
+                credit_amt = abs(amounts[1][2]) if len(amounts) > 1 and amounts[1][2] else 0
+                if debit_amt > 0 and credit_amt == 0:
+                    is_debit = True
+                    amount_val = debit_amt
+                elif credit_amt > 0 and debit_amt == 0:
+                    is_debit = False
+                    amount_val = credit_amt
+            
+            transactions.append({
+                'date': date_val.strftime('%Y-%m-%d'),
+                'description': description[:200],
+                'amount': abs(amount_val),
+                'debit': abs(amount_val) if is_debit else 0,
+                'credit': abs(amount_val) if not is_debit else 0,
+                'balance': None,
+                'raw_line': ' | '.join(cells)[:300]
+            })
+    
+    return transactions
+
+
+def extract_transactions_generic(text: str, tables: List[List] = None) -> List[Dict]:
+    """
+    Generic transaction extraction for unknown bank formats.
+    Uses table data if available, falls back to text parsing.
+    """
+    if tables:
+        table_transactions = extract_transactions_from_tables(tables)
+        if table_transactions:
+            return table_transactions
+    
+    transactions = []
+    lines = text.split('\n')
     
     for line in lines:
         line = line.strip()
         if not line or len(line) < 10:
             continue
+        
+        if '|' in line:
+            parts = [p.strip() for p in line.split('|')]
+            date_val = None
+            amounts = []
+            description_parts = []
+            
+            for part in parts:
+                if not part:
+                    continue
+                
+                if not date_val:
+                    for date_pattern in DATE_PATTERNS:
+                        match = re.search(date_pattern, part)
+                        if match:
+                            date_val = parse_date(match.group(1))
+                            break
+                    if date_val:
+                        continue
+                
+                amt_match = re.search(r'[\$]?\s*[\-\(]?\s*([\d,]+\.\d{2})\s*[\)]?', part)
+                if amt_match and re.match(r'^[\$\d\.\-\(\),\s]+$', part.strip()):
+                    parsed_amt = parse_amount(part)
+                    if parsed_amt is not None:
+                        amounts.append((part, parsed_amt))
+                        continue
+                
+                if len(part) > 2 and not re.match(r'^[\d\.\$\-\(\),\s]+$', part):
+                    description_parts.append(part)
+            
+            description = ' '.join(description_parts).strip()
+            
+            if date_val and description and amounts:
+                amount_val = amounts[-1][1]
+                is_debit = '-' in amounts[-1][0] or '(' in amounts[-1][0]
+                
+                transactions.append({
+                    'date': date_val.strftime('%Y-%m-%d'),
+                    'description': description[:200],
+                    'amount': abs(amount_val),
+                    'debit': abs(amount_val) if is_debit else 0,
+                    'credit': abs(amount_val) if not is_debit else 0,
+                    'balance': None,
+                    'raw_line': line[:300]
+                })
+                continue
         
         for date_pattern in DATE_PATTERNS:
             date_match = re.search(date_pattern, line)
@@ -156,38 +292,47 @@ def extract_transactions_generic(text: str) -> List[Dict]:
                     amounts = re.findall(r'[\$]?\s*[\-\(]?\s*[\d,]+\.\d{2}\s*[\)]?', remaining)
                     
                     if amounts:
-                        last_amount_match = None
-                        for amt in amounts:
-                            match = re.search(re.escape(amt), remaining)
-                            if match:
-                                last_amount_match = match
+                        last_amount = amounts[-1]
+                        last_pos = remaining.rfind(last_amount)
                         
-                        if last_amount_match:
-                            description = remaining[:remaining.find(amounts[0])].strip()
-                            amount_val = parse_amount(amounts[-1])
+                        description = remaining[:last_pos].strip()
+                        
+                        for amt in amounts[:-1]:
+                            pos = description.rfind(amt)
+                            if pos > len(description) * 0.6:
+                                description = description[:pos].strip()
+                        
+                        description = re.sub(r'\s+[\d,]+\.\d{2}\s*$', '', description).strip()
+                        description = re.sub(r'^\d+\s+', '', description).strip()
+                        
+                        amount_val = parse_amount(last_amount)
+                        
+                        if description and len(description) > 2 and amount_val is not None:
+                            is_debit = '-' in last_amount or '(' in last_amount
                             
-                            if description and amount_val is not None:
-                                debit = amount_val if amount_val < 0 else 0
-                                credit = amount_val if amount_val > 0 else 0
-                                
-                                transactions.append({
-                                    'date': parsed_date.strftime('%Y-%m-%d'),
-                                    'description': description[:100],
-                                    'amount': abs(amount_val),
-                                    'debit': abs(debit) if debit else 0,
-                                    'credit': credit if credit else 0,
-                                    'balance': None,
-                                    'raw_line': line[:200]
-                                })
-                                break
+                            transactions.append({
+                                'date': parsed_date.strftime('%Y-%m-%d'),
+                                'description': description[:200],
+                                'amount': abs(amount_val),
+                                'debit': abs(amount_val) if is_debit else 0,
+                                'credit': abs(amount_val) if not is_debit else 0,
+                                'balance': None,
+                                'raw_line': line[:300]
+                            })
+                            break
     
     return transactions
 
 
-def extract_transactions_chase(text: str) -> List[Dict]:
+def extract_transactions_chase(text: str, tables: List[List] = None) -> List[Dict]:
     """
     Chase-specific transaction parsing.
     """
+    if tables:
+        table_transactions = extract_transactions_from_tables(tables)
+        if table_transactions:
+            return table_transactions
+    
     transactions = []
     lines = text.split('\n')
     
@@ -216,16 +361,16 @@ def extract_transactions_chase(text: str) -> List[Dict]:
                     
                     transactions.append({
                         'date': parsed_date.strftime('%Y-%m-%d') if parsed_date else date_str,
-                        'description': description[:100],
+                        'description': description[:200],
                         'amount': abs(amount),
                         'debit': abs(amount) if amount < 0 else 0,
                         'credit': amount if amount > 0 else 0,
                         'balance': balance,
-                        'raw_line': line[:200]
+                        'raw_line': line[:300]
                     })
     
     if not transactions:
-        transactions = extract_transactions_generic(text)
+        transactions = extract_transactions_generic(text, tables)
     
     return transactions
 
@@ -285,14 +430,14 @@ def extract_account_info(text: str, bank_format: str) -> Dict:
     return account_info
 
 
-def parse_transactions(text: str, bank_format: str) -> List[Dict]:
+def parse_transactions(text: str, bank_format: str, tables: List[List] = None) -> List[Dict]:
     """
     Parse transaction data from extracted text based on bank format.
     """
     if bank_format == 'chase':
-        return extract_transactions_chase(text)
+        return extract_transactions_chase(text, tables)
     else:
-        return extract_transactions_generic(text)
+        return extract_transactions_generic(text, tables)
 
 
 def calculate_summary_stats(transactions: List[Dict]) -> Dict:
@@ -334,7 +479,7 @@ def process_bank_statement(pdf_path: str) -> Dict:
             'success': False
         }
     
-    raw_text = extract_text_from_pdf(pdf_path)
+    raw_text, tables = extract_text_from_pdf(pdf_path)
     
     if not raw_text:
         return {
@@ -344,7 +489,7 @@ def process_bank_statement(pdf_path: str) -> Dict:
     
     bank_format = detect_bank_format(raw_text)
     
-    transactions = parse_transactions(raw_text, bank_format)
+    transactions = parse_transactions(raw_text, bank_format, tables)
     
     account_info = extract_account_info(raw_text, bank_format)
     
