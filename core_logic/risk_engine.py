@@ -248,8 +248,16 @@ def detect_gambling_activity(transactions: List[Dict]) -> Dict:
 def identify_mca_lender(description: str) -> Optional[str]:
     """
     Identify MCA lender from transaction description or ACH identifier.
+    Uses specific ACH IDs first, then pattern matching.
+    Separates SpotOn minpmt (MCA payment) from small SpotOn processing fees.
     """
     desc_lower = description.lower()
+    
+    if 'minpmt' in desc_lower and 'spoton' in desc_lower:
+        return 'SpotOn (MINPMT)'
+    
+    if re.search(r'spoton\s*-\s*[a-z0-9]|fbo spoton|spoton transact', desc_lower):
+        return None
     
     for ach_id, lender_name in MCA_ACH_IDENTIFIERS.items():
         if ach_id.lower() in desc_lower:
@@ -284,7 +292,11 @@ def parse_date_flexible(date_val) -> Optional[datetime]:
 
 def detect_payment_frequency(dates: List[str]) -> str:
     """
-    Determine payment frequency from list of payment dates.
+    Determine payment frequency by counting payments per month.
+    - 15+ per month = daily
+    - 4-5 per month = weekly
+    - 2 per month = bi-weekly
+    - 1 per month = monthly
     """
     if len(dates) < 2:
         return 'unknown'
@@ -300,16 +312,24 @@ def detect_payment_frequency(dates: List[str]) -> str:
             return 'unknown'
         
         date_objs.sort()
-        gaps = [(date_objs[i+1] - date_objs[i]).days for i in range(len(date_objs)-1)]
-        avg_gap = sum(gaps) / len(gaps) if gaps else 0
         
-        if avg_gap <= 2:
+        monthly_counts = defaultdict(int)
+        for d in date_objs:
+            month_key = f"{d.year}-{d.month:02d}"
+            monthly_counts[month_key] += 1
+        
+        if not monthly_counts:
+            return 'unknown'
+        
+        avg_per_month = sum(monthly_counts.values()) / len(monthly_counts)
+        
+        if avg_per_month >= 15:
             return 'daily'
-        elif avg_gap <= 8:
+        elif avg_per_month >= 3.5:
             return 'weekly'
-        elif avg_gap <= 16:
+        elif avg_per_month >= 1.8:
             return 'bi-weekly'
-        elif avg_gap <= 35:
+        elif avg_per_month >= 0.8:
             return 'monthly'
         else:
             return 'irregular'

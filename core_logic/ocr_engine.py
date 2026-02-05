@@ -11,21 +11,21 @@ import os
 
 
 BANK_PATTERNS = {
-    'chase': [r'JPMorgan Chase', r'CHASE', r'chase\.com'],
+    'pnc': [r'PNC Bank', r'PNC BANK', r'pnc\.com'],
+    'truist': [r'Truist', r'TRUIST', r'BB&T', r'SunTrust'],
     'bofa': [r'Bank of America', r'BANK OF AMERICA', r'bankofamerica\.com'],
     'wells_fargo': [r'Wells Fargo', r'WELLS FARGO', r'wellsfargo\.com'],
     'td_bank': [r'TD Bank', r'TD BANK'],
-    'pnc': [r'PNC Bank', r'PNC BANK'],
     'us_bank': [r'U\.S\. Bank', r'US BANK', r'usbank\.com'],
     'capital_one': [r'Capital One', r'CAPITAL ONE'],
     'regions': [r'Regions Bank', r'REGIONS'],
-    'truist': [r'Truist', r'TRUIST', r'BB&T', r'SunTrust'],
     'citizens': [r'Citizens Bank', r'CITIZENS'],
     'fifth_third': [r'Fifth Third', r'FIFTH THIRD'],
     'huntington': [r'Huntington', r'HUNTINGTON'],
     'key_bank': [r'KeyBank', r'KEY BANK'],
     'santander': [r'Santander', r'SANTANDER'],
     'bmo': [r'BMO Harris', r'BMO HARRIS'],
+    'chase': [r'JPMorgan Chase', r'chase\.com', r'JPMORGAN'],
 }
 
 DATE_PATTERNS = [
@@ -324,6 +324,341 @@ def extract_transactions_generic(text: str, tables: List[List] = None) -> List[D
     return transactions
 
 
+def extract_transactions_truist(text: str, tables: List[List] = None) -> List[Dict]:
+    """
+    Truist-specific transaction parsing.
+    Truist format: MM/DD (no year), sections for Checks (multi-column),
+    Other withdrawals (debits), Deposits/credits.
+    """
+    transactions = []
+    lines = text.split('\n')
+    
+    current_year = datetime.now().year
+    
+    period_match = re.search(r'(?:as of|For)\s*(\d{2}/\d{2}/\d{4})', text)
+    if period_match:
+        try:
+            d = datetime.strptime(period_match.group(1), '%m/%d/%Y')
+            current_year = d.year
+        except:
+            pass
+    
+    end_match = re.search(r'new balance as of\s*(\d{2}/\d{2}/\d{4})', text)
+    if end_match:
+        try:
+            d = datetime.strptime(end_match.group(1), '%m/%d/%Y')
+            current_year = d.year
+        except:
+            pass
+    
+    section_type = None
+    in_checks = False
+    
+    for line in lines:
+        line_stripped = line.strip()
+        if not line_stripped:
+            continue
+        
+        upper = line_stripped.upper()
+        
+        if re.match(r'^CHECKS$', upper) or upper.startswith('CHECKS') and 'CHECK#' not in upper and 'CHECKING' not in upper and 'AMOUNT' not in upper:
+            if 'DEDUCTION' not in upper and 'CHARGE' not in upper and 'WITHDRAWAL' not in upper:
+                section_type = 'debit'
+                in_checks = True
+                continue
+        
+        if 'DATE' in upper and 'CHECK#' in upper and 'AMOUNT' in upper:
+            continue
+        
+        if 'OTHERWITHDRAWALS' in upper.replace(' ', '') or ('OTHER' in upper and 'WITHDRAWAL' in upper) or ('DEBITS' in upper and 'SERVICE' in upper):
+            section_type = 'debit'
+            in_checks = False
+            continue
+        
+        if upper.startswith('DATE') and 'DESCRIPTION' in upper and 'AMOUNT' in upper:
+            continue
+        
+        if 'DEPOSITS' in upper.replace(' ', '') and ('CREDIT' in upper.replace(' ', '') or 'INTEREST' in upper.replace(' ', '')):
+            section_type = 'credit'
+            in_checks = False
+            continue
+        
+        if 'TOTALCHECKS' in upper.replace(' ', '') or 'TOTALOTHER' in upper.replace(' ', '') or 'TOTALDEPOSITS' in upper.replace(' ', ''):
+            continue
+        
+        if upper.startswith('ACCOUNTSUMMARY') or upper.startswith('YOUR PREVIOUS') or upper.startswith('YOUR NEW'):
+            continue
+        
+        if 'CONTINUED' in upper or upper.startswith('§') or upper.startswith('PAGE') or 'TRUIST DYNAMIC' in upper:
+            continue
+        
+        if re.match(r'^\d{10,}$', line_stripped) or re.match(r'^\d{3}\d+MAV$', line_stripped.replace(' ', '')):
+            continue
+        
+        if re.match(r'^(FL|Page)\s', line_stripped) or line_stripped.startswith('¡'):
+            continue
+        
+        if '*' == line_stripped.strip():
+            continue
+        
+        if re.match(r'^\*indicates', line_stripped):
+            continue
+        
+        if section_type is None:
+            continue
+        
+        if in_checks:
+            check_entries = re.findall(r'(\d{2}/\d{2})\s+(\d+)\s+([\d,]+\.\d{2})', line_stripped)
+            for entry in check_entries:
+                date_str, check_num, amount_str = entry
+                try:
+                    amount = float(amount_str.replace(',', ''))
+                except:
+                    continue
+                full_date = f"{date_str}/{current_year}"
+                parsed_date = parse_date(full_date)
+                if not parsed_date:
+                    continue
+                transactions.append({
+                    'date': parsed_date.strftime('%Y-%m-%d'),
+                    'description': f"Check #{check_num}",
+                    'amount': amount,
+                    'debit': amount,
+                    'credit': 0,
+                    'balance': None,
+                    'raw_line': line_stripped[:300]
+                })
+            continue
+        
+        match = re.match(r'^(\d{2}/\d{2})\s+(.+?)\s+([\d,]+\.\d{2})\s*$', line_stripped)
+        if match:
+            date_str = match.group(1)
+            description = match.group(2).strip()
+            amount_str = match.group(3)
+            
+            try:
+                amount = float(amount_str.replace(',', ''))
+            except:
+                continue
+            
+            full_date = f"{date_str}/{current_year}"
+            parsed_date = parse_date(full_date)
+            if not parsed_date:
+                continue
+            
+            description = re.sub(r'\s+\d+\s*$', '', description).strip()
+            
+            is_credit = section_type == 'credit'
+            is_debit = section_type == 'debit'
+            
+            transactions.append({
+                'date': parsed_date.strftime('%Y-%m-%d'),
+                'description': description[:200],
+                'amount': amount,
+                'debit': amount if is_debit else 0,
+                'credit': amount if is_credit else 0,
+                'balance': None,
+                'raw_line': line_stripped[:300]
+            })
+    
+    return transactions
+
+
+def extract_transactions_pnc(text: str, tables: List[List] = None) -> List[Dict]:
+    """
+    PNC Bank-specific transaction parsing.
+    PNC format sections: Deposits, ACH Additions (credits), Other Additions (credits),
+    Checks (debits, multi-column), Debit Card Purchases, POS Purchases,
+    ATM Transactions, ACH Deductions, Service Charges, Other Deductions.
+    """
+    transactions = []
+    lines = text.split('\n')
+    
+    current_year = datetime.now().year
+    
+    period_match = re.search(r'Period\s+(\d{2}/\d{2}/\d{4})\s+to\s+(\d{2}/\d{2}/\d{4})', text)
+    if period_match:
+        try:
+            end_date = datetime.strptime(period_match.group(2), '%m/%d/%Y')
+            current_year = end_date.year
+        except:
+            pass
+    
+    section_type = None
+    in_checks = False
+    
+    skip_patterns = [
+        r'^Date\s+Transaction\s+Reference',
+        r'^posted\s+Amount\s+description',
+        r'^Date\s+Check\s+Reference',
+        r'^posted\s+number\s+Amount',
+        r'continued on next page',
+        r'\(cid:\d+\)',
+        r'^Business Checking',
+        r'^For 24-hour',
+        r'^pnc\.com',
+        r'^Primary Account Number',
+        r'^Page \d+ of \d+',
+        r'^Effective \d{2}-\d{2}',
+        r'^\d{3}-\d{7}',
+        r'^[A-Z]{3}\s+\w.{0,40}Mav$',
+        r'^Payoneer\s',
+        r'^ADP\s',
+        r'Gap in check sequence',
+        r'^Detail of Services',
+        r'^Note:',
+        r'^\*\* Combined',
+        r'^Description\s+Volume\s+Amount',
+        r'^Monthly',
+        r'^Total',
+        r'^Member FDIC',
+    ]
+    
+    for line in lines:
+        line_stripped = line.strip()
+        if not line_stripped:
+            continue
+        
+        upper = line_stripped.upper()
+        
+        if 'DAILY BALANCE' in upper:
+            section_type = 'skip'
+            in_checks = False
+            continue
+        elif upper.startswith('DEPOSITS') and 'OTHER' not in upper and 'DEDUCTION' not in upper:
+            section_type = 'credit'
+            in_checks = False
+            continue
+        elif 'ACH ADDITIONS' in upper:
+            section_type = 'credit'
+            in_checks = False
+            continue
+        elif 'OTHER ADDITIONS' in upper:
+            section_type = 'credit'
+            in_checks = False
+            continue
+        elif 'CHECKS AND' in upper or upper.startswith('CHECKS'):
+            section_type = 'debit'
+            in_checks = True
+            continue
+        elif 'DEBIT CARD PURCHASE' in upper:
+            section_type = 'debit'
+            in_checks = False
+            continue
+        elif 'POS PURCHASE' in upper:
+            section_type = 'debit'
+            in_checks = False
+            continue
+        elif 'ATM' in upper and ('DEBIT CARD' in upper or 'TRANSACTION' in upper or 'MISC' in upper):
+            section_type = 'debit'
+            in_checks = False
+            continue
+        elif 'ACH DEDUCTION' in upper:
+            section_type = 'debit'
+            in_checks = False
+            continue
+        elif 'SERVICE CHARGE' in upper and 'PERIOD' not in upper:
+            section_type = 'debit'
+            in_checks = False
+            continue
+        elif 'OTHER DEDUCTION' in upper:
+            section_type = 'debit'
+            in_checks = False
+            continue
+        elif 'ACTIVITY DETAIL' in upper or 'BALANCE SUMMARY' in upper or 'OVERDRAFT' in upper:
+            continue
+        elif 'DETAIL OF SERVICES' in upper:
+            section_type = 'skip'
+            in_checks = False
+            continue
+        
+        if section_type == 'skip':
+            continue
+        
+        should_skip = False
+        for pat in skip_patterns:
+            if re.search(pat, line_stripped, re.IGNORECASE):
+                should_skip = True
+                break
+        if should_skip:
+            continue
+        
+        if in_checks:
+            check_entries = re.findall(r'(\d{2}/\d{2})\s+(\d+\s*\*?\s*)\s+([\d,]+\.\d{2})\s+(\d+)', line_stripped)
+            for entry in check_entries:
+                date_str, check_num, amount_str, ref_num = entry
+                try:
+                    amount = float(amount_str.replace(',', ''))
+                except:
+                    continue
+                full_date = f"{date_str}/{current_year}"
+                parsed_date = parse_date(full_date)
+                if not parsed_date:
+                    continue
+                chk = check_num.strip().replace('*', '').strip()
+                desc = f"Check #{chk}" if chk and chk != '000' else f"Check (counter)"
+                transactions.append({
+                    'date': parsed_date.strftime('%Y-%m-%d'),
+                    'description': desc,
+                    'amount': amount,
+                    'debit': amount,
+                    'credit': 0,
+                    'balance': None,
+                    'raw_line': line_stripped[:300]
+                })
+            continue
+        
+        match = re.match(r'^(\d{2}/\d{2})\s+([\d,]+\.\d{2})([-]?)\s+(.+)', line_stripped)
+        if match:
+            date_str = match.group(1)
+            amount_str = match.group(2)
+            neg_sign = match.group(3)
+            description = match.group(4).strip()
+            
+            try:
+                amount = float(amount_str.replace(',', ''))
+            except:
+                continue
+            
+            full_date = f"{date_str}/{current_year}"
+            parsed_date = parse_date(full_date)
+            if not parsed_date:
+                continue
+            
+            if section_type == 'credit':
+                is_credit = True
+                is_debit = False
+            elif section_type == 'debit':
+                is_credit = False
+                is_debit = True
+            else:
+                desc_lower = description.lower()
+                if any(kw in desc_lower for kw in ['incoming wire', 'pymt proc', 'deposit',
+                                                     'reverse corporate ach debit',
+                                                     'reverse check', 'item return']):
+                    is_credit = True
+                    is_debit = False
+                else:
+                    is_debit = True
+                    is_credit = False
+            
+            if neg_sign == '-':
+                is_debit = True
+                is_credit = False
+            
+            transactions.append({
+                'date': parsed_date.strftime('%Y-%m-%d'),
+                'description': description[:200],
+                'amount': amount,
+                'debit': amount if is_debit else 0,
+                'credit': amount if is_credit else 0,
+                'balance': None,
+                'raw_line': line_stripped[:300]
+            })
+    
+    return transactions
+
+
 def extract_transactions_chase(text: str, tables: List[List] = None) -> List[Dict]:
     """
     Chase-specific transaction parsing.
@@ -434,7 +769,11 @@ def parse_transactions(text: str, bank_format: str, tables: List[List] = None) -
     """
     Parse transaction data from extracted text based on bank format.
     """
-    if bank_format == 'chase':
+    if bank_format == 'pnc':
+        return extract_transactions_pnc(text, tables)
+    elif bank_format == 'truist':
+        return extract_transactions_truist(text, tables)
+    elif bank_format == 'chase':
         return extract_transactions_chase(text, tables)
     else:
         return extract_transactions_generic(text, tables)
