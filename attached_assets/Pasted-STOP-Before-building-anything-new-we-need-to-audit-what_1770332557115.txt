@@ -1,0 +1,82 @@
+STOP. Before building anything new, we need to audit what's already supposed to be there.
+
+I provided complete code in Phase 2, 3, 3.5, and 5 prompts. That code included:
+
+## CHECK IF THESE EXIST AND ARE FULLY IMPLEMENTED (not stubs):
+
+### 1. OCR ENGINE (ocr_engine.py)
+- [ ] pdfplumber extraction as primary method
+- [ ] pytesseract OCR as FALLBACK when pdfplumber fails
+- [ ] PDF metadata fraud check (detects Photoshop/Canva/GIMP in creator field)
+- [ ] Generic parser that works on ANY bank (not bank-specific parsers)
+- [ ] Auto-detects date formats (MM/DD/YYYY, MM/DD/YY, etc.)
+- [ ] Auto-detects debit vs credit from columns or keywords
+- [ ] Address extraction from first page
+- [ ] Bank name identification from patterns
+
+### 2. SCRUBBER (scrubber.py)
+- [ ] Separates gross deposits from net revenue
+- [ ] Excludes: internal transfers, loan proceeds, owner deposits, refunds
+- [ ] Apex Test: detects transfers between multiple accounts
+- [ ] Concentration risk analysis (% from top depositors)
+
+### 3. RISK ENGINE (risk_engine.py)
+- [ ] NSF/overdraft counting and fee totals
+- [ ] Negative balance day tracking
+- [ ] Gambling transaction detection
+- [ ] Red flag detection (garnishments, tax liens, judgments)
+- [ ] Expense categorization (payroll, rent, utilities, etc.)
+- [ ] Revenue velocity/acceleration (is revenue declining faster?)
+- [ ] Risk score calculation (0-100 with specific deductions)
+- [ ] Risk tier assignment (A/B/C/D)
+
+### 4. POSITION DETECTOR (position_detector.py)
+- [ ] Detects MCA lenders from 60+ keywords across 4 tiers
+- [ ] Groups recurring payments by lender
+- [ ] Frequency detection: daily (15+/mo), weekly (4-5/mo), biweekly (2/mo), monthly (1/mo)
+- [ ] Reverse engineering: estimates original funding, factor rate, remaining balance, payoff date
+- [ ] Tracks payment changes over time
+- [ ] Identifies funding events (large wires/deposits)
+
+### 5. LENDER MATCHER (lender_matcher.py)
+- [ ] Loads lender criteria from CSV (73 columns)
+- [ ] Hard disqualifications (instant NO)
+- [ ] Soft preferences (affects score)
+- [ ] Match scoring (0-100)
+- [ ] Returns eligible lenders with contact info
+- [ ] Returns disqualified lenders with specific reasons
+
+### 6. CALCULATOR (calculator.py)
+- [ ] DTI calculation
+- [ ] Holdback percentage
+- [ ] Net available revenue
+- [ ] Max recommended funding
+- [ ] Max daily payment (10% of lowest month)
+- [ ] Cash flow coverage ratio
+- [ ] Advance caps by tier
+
+### 7. REPORTER (reporter.py)
+- [ ] 5-tab Excel generation
+- [ ] Deal Summary tab (SPEC SHEET style)
+- [ ] Monthly holdback breakdown by month
+- [ ] Position details with paid-in %, payoff dates
+- [ ] Formatting: currency, percentages, red/green for pass/fail
+
+### 8. DEAL INPUT (deal_input.py)
+- [ ] Manual input form
+- [ ] Position override (add/edit/delete)
+- [ ] Merge OCR data with manual overrides
+
+### 9. CONFIG FILES
+- [ ] keywords.json: 60+ MCA lenders, NSF keywords, gambling keywords, red flags
+- [ ] funder_rates_complete.json: 100+ funders with factor rates
+- [ ] lender_aliases.json: Fuzzy matching variations
+
+## WHAT I NEED YOU TO DO:
+
+1. Go through each checkbox above
+2. Check if the code EXISTS and is FULLY IMPLEMENTED (not pass/stub/TODO)
+3. Report back: "✅ Implemented" or "❌ Missing" for each item
+4. For anything missing - explain why it didn't get implemented from the prompts I provided
+
+DO NOT build new code yet. First tell me what's there vs what's missing.
