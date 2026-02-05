@@ -1,6 +1,10 @@
 """
 OCR Engine - PDF text extraction and bank statement parsing.
 Extracts transactions, account info, and checks for fraud indicators.
+
+Strategy:
+1. Try pdfplumber first (fast, works on digital PDFs)
+2. If no text found, fall back to pytesseract OCR (slower, works on scanned PDFs)
 """
 
 import pdfplumber
@@ -10,11 +14,41 @@ from datetime import datetime, timedelta
 from dateutil import parser as date_parser
 from typing import List, Dict, Optional, Tuple
 
+try:
+    import pytesseract
+    from pdf2image import convert_from_path
+    OCR_AVAILABLE = True
+except ImportError:
+    OCR_AVAILABLE = False
+
+
+def extract_text_ocr(pdf_path: str) -> str:
+    """Extract text using pytesseract OCR (for scanned/image-based PDFs)."""
+    if not OCR_AVAILABLE:
+        return ""
+    try:
+        images = convert_from_path(pdf_path, dpi=300)
+        text_parts = []
+        for image in images:
+            page_text = pytesseract.image_to_string(image)
+            if page_text:
+                text_parts.append(page_text)
+        return "\n".join(text_parts)
+    except Exception:
+        return ""
+
 
 def extract_from_pdf(pdf_path: str) -> dict:
-    """Main entry point. Extract all data from a bank statement PDF."""
+    """
+    Main entry point. Extract all data from a bank statement PDF.
+
+    Strategy:
+    1. Try pdfplumber first (fast, works on digital PDFs)
+    2. If no text found, fall back to pytesseract OCR (slower, works on scanned PDFs)
+    """
     result = {
         "success": False,
+        "extraction_method": None,
         "bank_name": "Unknown",
         "account_number": "",
         "account_type": "operating",
@@ -24,7 +58,8 @@ def extract_from_pdf(pdf_path: str) -> dict:
         "transactions": [],
         "address_extracted": None,
         "fraud_flags": [],
-        "errors": []
+        "errors": [],
+        "warnings": [],
     }
 
     if not os.path.exists(pdf_path):
@@ -40,9 +75,23 @@ def extract_from_pdf(pdf_path: str) -> dict:
                 page_text = page.extract_text() or ""
                 all_text += page_text + "\n"
 
-            if not all_text.strip():
-                result["errors"].append("No text could be extracted from PDF")
-                return result
+            # If pdfplumber got text, use it
+            if all_text.strip() and len(all_text.strip()) > 100:
+                result["extraction_method"] = "pdfplumber"
+            else:
+                # Fall back to pytesseract OCR
+                result["warnings"].append("pdfplumber found no text, falling back to OCR")
+                ocr_text = extract_text_ocr(pdf_path)
+                if ocr_text and len(ocr_text.strip()) > 100:
+                    all_text = ocr_text
+                    result["extraction_method"] = "pytesseract_ocr"
+                else:
+                    result["errors"].append(
+                        "Both pdfplumber and OCR failed to extract text"
+                        if OCR_AVAILABLE else
+                        "No text extracted (pytesseract not installed for OCR fallback)"
+                    )
+                    return result
 
             bank_info = identify_bank(all_text)
             result["bank_name"] = bank_info["bank_name"]
@@ -53,8 +102,12 @@ def extract_from_pdf(pdf_path: str) -> dict:
             result["closing_balance"] = bank_info["closing_balance"]
             result["address_extracted"] = bank_info["address"]
 
-            transactions = extract_transactions(pdf)
+            # Try table extraction first (only works with pdfplumber method)
+            transactions = []
+            if result["extraction_method"] == "pdfplumber":
+                transactions = extract_transactions(pdf)
 
+            # Fall back to text-based extraction
             if not transactions:
                 transactions = extract_transactions_from_text(all_text)
 

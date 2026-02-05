@@ -218,6 +218,7 @@ def process():
             lender_match_data=lender_data,
             output_path=OUTPUT_FOLDER,
             fraud_flags=all_fraud_flags,
+            raw_transactions=all_transactions,
         )
 
         pipeline_result = {

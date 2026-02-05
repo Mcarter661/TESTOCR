@@ -23,8 +23,9 @@ def generate_report(
     lender_match_data: dict,
     output_path: str,
     fraud_flags: list = None,
+    raw_transactions: list = None,
 ) -> str:
-    """Main entry point. Generate the complete 5-tab Excel report."""
+    """Main entry point. Generate the 6-tab Excel report."""
     os.makedirs(output_path, exist_ok=True)
 
     safe_name = "".join(c for c in merchant_name if c.isalnum() or c in " _-")[:40].strip()
@@ -43,6 +44,7 @@ def generate_report(
     _add_reverse_engineering_tab(workbook, fmt, position_data)
     _add_forensics_tab(workbook, fmt, risk_data, fraud_flags or [])
     _add_lender_match_tab(workbook, fmt, lender_match_data)
+    _add_raw_transactions_tab(workbook, fmt, raw_transactions or [])
 
     workbook.close()
 
@@ -477,6 +479,67 @@ def _add_lender_match_tab(workbook, fmt, lender_data):
     ws.write(row, 1, f"{lender_data.get('total_lenders_checked', 0)} checked, "
                       f"{lender_data.get('eligible_count', 0)} eligible, "
                       f"{lender_data.get('disqualified_count', 0)} disqualified", fmt["value"])
+
+
+# ── Tab 6: Raw Transactions ─────────────────────────────────────────
+
+def _add_raw_transactions_tab(workbook, fmt, transactions):
+    ws = workbook.add_worksheet("Raw Transactions")
+    ws.set_column("A:A", 14)
+    ws.set_column("B:B", 50)
+    ws.set_column("C:C", 16)
+    ws.set_column("D:D", 16)
+
+    ws.write("A1", "RAW EXTRACTED TRANSACTIONS", fmt["title"])
+
+    row = 3
+    ws.write(row, 0, f"TOTAL TRANSACTIONS: {len(transactions)}", fmt["section"])
+    row += 1
+
+    if not transactions:
+        ws.write(row, 0, "No transactions extracted.", fmt["value"])
+        return
+
+    headers = ["Date", "Description", "Amount", "Balance"]
+    for col, h in enumerate(headers):
+        ws.write(row, col, h, fmt["header"])
+    row += 1
+
+    total_deposits = 0.0
+    total_withdrawals = 0.0
+    deposit_count = 0
+    withdrawal_count = 0
+
+    for txn in transactions:
+        ws.write(row, 0, txn.get("date", ""), fmt["value"])
+        ws.write(row, 1, txn.get("description", ""), fmt["wrap"])
+        amount = txn.get("amount", 0)
+        amount_fmt = fmt["pass"] if amount > 0 else fmt["fail"] if amount < 0 else fmt["value"]
+        ws.write(row, 2, amount, fmt["currency"])
+        balance = txn.get("running_balance")
+        if balance is not None:
+            ws.write(row, 3, balance, fmt["currency"])
+        if amount > 0:
+            total_deposits += amount
+            deposit_count += 1
+        elif amount < 0:
+            total_withdrawals += amount
+            withdrawal_count += 1
+        row += 1
+
+    row += 1
+    ws.write(row, 0, "SUMMARY", fmt["section"])
+    row += 1
+    ws.write(row, 0, "Total Deposits", fmt["label"])
+    ws.write(row, 1, f"{deposit_count} transactions", fmt["value"])
+    ws.write(row, 2, total_deposits, fmt["currency_bold"])
+    row += 1
+    ws.write(row, 0, "Total Withdrawals", fmt["label"])
+    ws.write(row, 1, f"{withdrawal_count} transactions", fmt["value"])
+    ws.write(row, 2, total_withdrawals, fmt["currency_bold"])
+    row += 1
+    ws.write(row, 0, "Net", fmt["label"])
+    ws.write(row, 2, total_deposits + total_withdrawals, fmt["currency_bold"])
 
 
 # ── JSON Output ───────────────────────────────────────────────────────
