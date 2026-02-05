@@ -1,0 +1,171 @@
+{
+  "generated_at": "2026-02-05T19:44:07.220852",
+  "merchant_name": "Phase3 Test Merchant",
+  "scrub_analysis": {
+    "monthly_gross": {},
+    "monthly_net": {},
+    "monthly_deposit_count": {},
+    "total_gross": 0,
+    "total_net": 0,
+    "avg_monthly_net": 0,
+    "excluded_transactions": []
+  },
+  "risk_analysis": {
+    "risk_score": 72,
+    "risk_tier": "B",
+    "nsf_count": 2,
+    "nsf_total_fees": 70,
+    "negative_day_count": 3,
+    "consecutive_negative_days": 1,
+    "max_negative_balance": -500,
+    "cash_deposit_percent": 5,
+    "cash_risk_flag": false,
+    "cash_deposit_total": 2000,
+    "gambling_flag": false,
+    "gambling_total": 0,
+    "red_flags": [],
+    "revenue_velocity": 2.1,
+    "velocity_flag": "stable",
+    "revenue_acceleration": 0.5,
+    "expenses_by_category": {}
+  },
+  "position_analysis": {
+    "positions": [],
+    "total_positions": 1,
+    "total_daily_payment": 200,
+    "total_monthly_payment": 4400,
+    "estimated_total_remaining": 15000,
+    "unique_lenders": [
+      "Unknown"
+    ],
+    "days_since_last_funding": 60
+  },
+  "calculations": {
+    "fico_score": 680,
+    "monthly_revenue": 45000,
+    "time_in_business_months": 24,
+    "nsf_count": 2,
+    "negative_days": 3,
+    "position_count": 1,
+    "days_since_last_funding": 60,
+    "ownership_percent": 75,
+    "avg_daily_balance": 6000,
+    "current_holdback_percent": 15,
+    "state": "FL",
+    "industry": "Retail",
+    "max_recommended_funding": 50000,
+    "net_available_revenue": 30000,
+    "cash_flow_coverage": 1.8,
+    "annualized_revenue": 540000,
+    "advance_cap": {
+      "min_advance": 30000,
+      "max_advance": 70000
+    },
+    "dti_ratio": 0.35,
+    "monthly_holdback": 4400
+  },
+  "lender_matching": {
+    "eligible_lenders": [
+      {
+        "lender_name": "Kalamata Select",
+        "display_name": "Kalamata Select",
+        "product_types": [
+          "MCA"
+        ],
+        "positions_accepted": [
+          "1st",
+          "2nd",
+          "3rd"
+        ],
+        "payment_types": [
+          "Daily",
+          "Weekly"
+        ],
+        "match_score": 100,
+        "current_appetite": "HOT",
+        "tier": "B",
+        "is_preferred": false,
+        "rep_contact_name": "Nissim",
+        "rep_contact_email": "nissim.baker@kalamatacapitalgroup.com",
+        "rep_phone": "845-608-2705",
+        "submission_email": "submissions@kalamatacapitalgroup.com",
+        "min_funding_amount": 5000.0,
+        "max_funding_amount": 250000.0,
+        "max_daily_ach": 2500.0,
+        "term_range": "3-9 months",
+        "buy_rates": "1.35-1.49",
+        "commission_structure": "6-10% commission",
+        "credit_pull_type": "Soft",
+        "funding_cutoff": "2:00 PM EST",
+        "bank_login_methods": [
+          "Plaid",
+          "Yodlee"
+        ]
+      },
+      {
+        "lender_name": "IOU Core",
+        "display_name": "IOU Financial Core",
+        "product_types": [
+          "Term Loan"
+        ],
+        "positions_accepted": [
+          "1st",
+          "2nd"
+        ],
+        "payment_types": [
+          "Daily",
+          "Weekly"
+        ],
+        "match_score": 73.5,
+        "current_appetite": "NORMAL",
+        "tier": "B",
+        "is_preferred": false,
+        "rep_contact_name": "Todd Christensen",
+        "rep_contact_email": "tchristensen@ioufinancial.com",
+        "rep_phone": "678-379-4472",
+        "submission_email": "deals@ioufinancial.com",
+        "min_funding_amount": 10000.0,
+        "max_funding_amount": 350000.0,
+        "max_daily_ach": 2800.0,
+        "term_range": "6-15 months",
+        "buy_rates": "1.30-1.42",
+        "commission_structure": "8-12% commission",
+        "credit_pull_type": "Soft",
+        "funding_cutoff": "1:00 PM EST",
+        "bank_login_methods": [
+          "Plaid",
+          "Yodlee",
+          "Manual"
+        ]
+      }
+    ],
+    "disqualified_lenders": [
+      {
+        "lender_name": "Kalamata Prime",
+        "reasons": [
+          "Monthly revenue $45,000 below minimum $50,000",
+          "Days since last funding 60 below minimum 90"
+        ]
+      },
+      {
+        "lender_name": "Credibly Prime+",
+        "reasons": [
+          "Time in business 24mo below minimum 36mo",
+          "NSF count 2 exceeds maximum 0",
+          "Negative days 3 exceeds maximum 0"
+        ]
+      },
+      {
+        "lender_name": "Fintap A-Paper",
+        "reasons": [
+          "FICO 680 below minimum 720",
+          "Time in business 24mo below minimum 48mo",
+          "NSF count 2 exceeds maximum 0"
+        ]
+      }
+    ],
+    "total_lenders_checked": 5,
+    "eligible_count": 2,
+    "disqualified_count": 3
+  }
+}

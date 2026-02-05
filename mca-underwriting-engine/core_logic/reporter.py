@@ -411,6 +411,12 @@ def _add_lender_match_tab(workbook, fmt, lender_data):
     ws.set_column("B:B", 18)
     ws.set_column("C:C", 18)
     ws.set_column("D:D", 14)
+    ws.set_column("E:E", 10)
+    ws.set_column("F:F", 10)
+    ws.set_column("G:G", 22)
+    ws.set_column("H:H", 30)
+    ws.set_column("I:I", 18)
+    ws.set_column("J:J", 30)
 
     ws.write("A1", "LENDER MATCHING RESULTS", fmt["title"])
 
@@ -420,18 +426,29 @@ def _add_lender_match_tab(workbook, fmt, lender_data):
     row += 1
 
     if eligible:
-        ws.write(row, 0, "Lender", fmt["header"])
-        ws.write(row, 1, "Products", fmt["header"])
-        ws.write(row, 2, "Payment Types", fmt["header"])
-        ws.write(row, 3, "Match Score", fmt["header"])
+        headers = [
+            "Lender", "Products", "Payment Types", "Match Score",
+            "Appetite", "Tier", "Rep Contact Name", "Rep Contact Email",
+            "Rep Phone", "Submission Email",
+        ]
+        for col, h in enumerate(headers):
+            ws.write(row, col, h, fmt["header"])
         row += 1
         for lender in eligible:
-            ws.write(row, 0, lender["lender_name"], fmt["value"])
+            ws.write(row, 0, lender.get("display_name", lender["lender_name"]), fmt["value"])
             ws.write(row, 1, ", ".join(lender.get("product_types", [])), fmt["value"])
             ws.write(row, 2, ", ".join(lender.get("payment_types", [])), fmt["value"])
             score = lender.get("match_score", 0)
             s_fmt = fmt["pass"] if score >= 70 else fmt["warn"] if score >= 50 else fmt["value"]
             ws.write(row, 3, f"{score:.1f}", s_fmt)
+            appetite = lender.get("current_appetite", "")
+            a_fmt = fmt["pass"] if appetite == "HOT" else fmt["warn"] if appetite == "SLOW" else fmt["value"]
+            ws.write(row, 4, appetite, a_fmt)
+            ws.write(row, 5, lender.get("tier", ""), fmt["value"])
+            ws.write(row, 6, lender.get("rep_contact_name", ""), fmt["value"])
+            ws.write(row, 7, lender.get("rep_contact_email", ""), fmt["value"])
+            ws.write(row, 8, lender.get("rep_phone", ""), fmt["value"])
+            ws.write(row, 9, lender.get("submission_email", ""), fmt["value"])
             row += 1
     else:
         ws.write(row, 0, "No eligible lenders found.", fmt["fail"])
@@ -443,14 +460,14 @@ def _add_lender_match_tab(workbook, fmt, lender_data):
     row += 1
 
     if disqualified:
-        ws.set_column("B:B", 60)
         ws.write(row, 0, "Lender", fmt["header"])
         ws.write(row, 1, "Disqualifying Reasons", fmt["header_left"])
+        ws.merge_range(row, 1, row, 9, "Disqualifying Reasons", fmt["header_left"])
         row += 1
         for lender in disqualified:
             ws.write(row, 0, lender["lender_name"], fmt["value"])
             reasons = "; ".join(lender.get("reasons", []))
-            ws.write(row, 1, reasons, fmt["wrap"])
+            ws.merge_range(row, 1, row, 9, reasons, fmt["wrap"])
             row += 1
     else:
         ws.write(row, 0, "All lenders are eligible.", fmt["pass"])
