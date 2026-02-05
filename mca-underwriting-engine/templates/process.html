@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Analyze - MCA Underwriting Command Center{% endblock %}
+{% block page_title %}Run Analysis{% endblock %}
+
+{% block content %}
+<div class="process-info">
+    <div class="info-box">
+        <h4>Underwriting Analysis Pipeline</h4>
+        <p>Select bank statement PDFs below, enter deal details, and click <strong>Run Analysis</strong> to process.</p>
+        <ol class="pipeline-list">
+            <li><strong>OCR Extraction</strong> - Extract transactions, detect bank, check for fraud</li>
+            <li><strong>Revenue Scrub</strong> - Separate real revenue from transfers, owner deposits, loan proceeds</li>
+            <li><strong>Risk Analysis</strong> - NSFs, negative days, cash deposits, gambling, red flags, velocity</li>
+            <li><strong>Position Detection</strong> - Find existing MCA/loan positions, reverse-engineer terms</li>
+            <li><strong>Lender Matching</strong> - Check eligibility against lender criteria</li>
+            <li><strong>Report Generation</strong> - Create 5-tab Master Excel underwriting report</li>
+        </ol>
+    </div>
+</div>
+
+{% if files %}
+<form action="{{ url_for('process') }}" method="post" class="process-form">
+    <div class="deal-info-section">
+        <h4>Deal Information</h4>
+        <div class="deal-fields">
+            <div class="field-group">
+                <label for="merchant_name">Merchant Name</label>
+                <input type="text" name="merchant_name" id="merchant_name" placeholder="Business Legal Name">
+            </div>
+            <div class="field-group">
+                <label for="fico_score">FICO Score</label>
+                <input type="number" name="fico_score" id="fico_score" placeholder="0" min="0" max="850">
+            </div>
+            <div class="field-group">
+                <label for="time_in_business">Time in Business (months)</label>
+                <input type="number" name="time_in_business" id="time_in_business" placeholder="0" min="0">
+            </div>
+            <div class="field-group">
+                <label for="ownership_percent">Ownership %</label>
+                <input type="number" name="ownership_percent" id="ownership_percent" placeholder="100" min="0" max="100" step="0.1">
+            </div>
+            <div class="field-group">
+                <label for="state">State</label>
+                <input type="text" name="state" id="state" placeholder="e.g. NY" maxlength="2">
+            </div>
+            <div class="field-group">
+                <label for="industry">Industry</label>
+                <input type="text" name="industry" id="industry" placeholder="e.g. Restaurant">
+            </div>
+        </div>
+    </div>
+
+    <div class="file-selection">
+        <div class="selection-header">
+            <label class="select-all">
+                <input type="checkbox" id="selectAll" onchange="toggleAll()">
+                Select All ({{ files|length }} files)
+            </label>
+        </div>
+        <div class="file-grid">
+            {% for file in files %}
+            <label class="file-card">
+                <input type="checkbox" name="selected_files" value="{{ file.name }}" class="file-checkbox">
+                <div class="file-card-content">
+                    <div class="file-card-icon">&#128196;</div>
+                    <div class="file-card-info">
+                        <h4>{{ file.name }}</h4>
+                        <p>{{ file.size }} KB | {{ file.uploaded }}</p>
+                    </div>
+                </div>
+            </label>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="process-actions">
+        <button type="submit" class="btn btn-primary btn-large">
+            <span class="icon">&#9881;</span> Run Analysis
+        </button>
+    </div>
+</form>
+{% else %}
+<div class="empty-state large">
+    <h3>No Files to Analyze</h3>
+    <p>Upload bank statement PDFs first.</p>
+    <a href="{{ url_for('upload') }}" class="btn btn-primary">Upload Files</a>
+</div>
+{% endif %}
+
+<script>
+function toggleAll() {
+    const checked = document.getElementById('selectAll').checked;
+    document.querySelectorAll('.file-checkbox').forEach(cb => cb.checked = checked);
+}
+document.querySelectorAll('.file-checkbox').forEach(cb => {
+    cb.addEventListener('change', () => {
+        const all = document.querySelectorAll('.file-checkbox').length;
+        const checked = document.querySelectorAll('.file-checkbox:checked').length;
+        document.getElementById('selectAll').checked = checked === all;
+    });
+});
+</script>
+{% endblock %}

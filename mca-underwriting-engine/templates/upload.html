@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Upload - MCA Underwriting Command Center{% endblock %}
+{% block page_title %}Upload Bank Statements{% endblock %}
+
+{% block content %}
+<div class="upload-container">
+    <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" class="upload-form" id="uploadForm">
+        <div class="upload-zone" id="uploadZone">
+            <div class="upload-icon-lg">&#8679;</div>
+            <h3>Drag & Drop PDF Bank Statements</h3>
+            <p>or click to browse files</p>
+            <input type="file" name="files" id="fileInput" multiple accept=".pdf" class="file-input">
+            <div class="file-preview" id="filePreview"></div>
+        </div>
+        <button type="submit" class="btn btn-primary btn-large" id="uploadBtn" disabled>
+            Upload Selected Files
+        </button>
+    </form>
+</div>
+
+<section class="uploaded-files-section">
+    <div class="section-header">
+        <h3>Uploaded Files</h3>
+        <span class="file-count">{{ files|length }} file(s)</span>
+    </div>
+    {% if files %}
+    <table class="data-table">
+        <thead>
+            <tr><th>Filename</th><th>Size</th><th>Uploaded</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+            {% for file in files %}
+            <tr>
+                <td>{{ file.name }}</td>
+                <td>{{ file.size }} KB</td>
+                <td>{{ file.uploaded }}</td>
+                <td>
+                    <form action="{{ url_for('delete_file', filename=file.name) }}" method="post" class="inline-form">
+                        <button type="submit" class="btn-sm btn-danger" onclick="return confirm('Delete this file?')">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <p>No files uploaded yet. Upload PDF bank statements to get started.</p>
+    </div>
+    {% endif %}
+</section>
+
+<script>
+const uploadZone = document.getElementById('uploadZone');
+const fileInput = document.getElementById('fileInput');
+const filePreview = document.getElementById('filePreview');
+const uploadBtn = document.getElementById('uploadBtn');
+
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+uploadZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadZone.classList.remove('dragover');
+    fileInput.files = e.dataTransfer.files;
+    updatePreview();
+});
+fileInput.addEventListener('change', updatePreview);
+
+function updatePreview() {
+    filePreview.innerHTML = '';
+    const files = fileInput.files;
+    if (files.length > 0) {
+        uploadBtn.disabled = false;
+        for (let f of files) {
+            const div = document.createElement('div');
+            div.className = 'preview-item';
+            div.textContent = f.name + ' (' + (f.size/1024).toFixed(1) + ' KB)';
+            filePreview.appendChild(div);
+        }
+    } else {
+        uploadBtn.disabled = true;
+    }
+}
+</script>
+{% endblock %}

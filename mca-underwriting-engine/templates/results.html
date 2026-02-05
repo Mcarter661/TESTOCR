@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Results - MCA Underwriting Command Center{% endblock %}
+{% block page_title %}Analysis Results & Reports{% endblock %}
+
+{% block content %}
+<div class="results-sections">
+    <section class="results-section">
+        <div class="section-header">
+            <h3>Analysis History</h3>
+        </div>
+        {% if results %}
+        <div class="results-grid">
+            {% for r in results %}
+            <div class="result-card">
+                <div class="result-header">
+                    <h4>{{ r.merchant_name }}</h4>
+                    <span class="tier-badge tier-{{ r.risk_tier|lower }}">{{ r.risk_tier }}</span>
+                </div>
+                <div class="result-body">
+                    <p class="timestamp">{{ r.timestamp[:19] }}</p>
+                    <div class="result-metrics">
+                        <div class="metric">
+                            <span class="metric-label">Score</span>
+                            <span class="metric-value">{{ r.risk_score }}/100</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Positions</span>
+                            <span class="metric-value">{{ r.positions_detected }}</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Lenders</span>
+                            <span class="metric-value">{{ r.eligible_lenders }}</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Max Funding</span>
+                            <span class="metric-value">${{ "{:,.0f}".format(r.max_funding) }}</span>
+                        </div>
+                    </div>
+                    {% if r.fraud_flags %}
+                    <div class="fraud-alert">
+                        &#9888; {{ r.fraud_flags|length }} fraud flag(s) detected
+                    </div>
+                    {% endif %}
+                    {% if r.report_file %}
+                    <a href="{{ url_for('download_file', filename=r.report_file) }}" class="btn btn-primary btn-sm-block">
+                        Download Report
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <p>No analyses run yet.</p>
+            <a href="{{ url_for('process') }}" class="btn-link">Run your first analysis</a>
+        </div>
+        {% endif %}
+    </section>
+
+    <section class="results-section">
+        <div class="section-header">
+            <h3>Generated Reports</h3>
+            <span class="file-count">{{ reports|length }} report(s)</span>
+        </div>
+        {% if reports %}
+        <table class="data-table">
+            <thead>
+                <tr><th>Report Name</th><th>Type</th><th>Size</th><th>Created</th><th>Action</th></tr>
+            </thead>
+            <tbody>
+                {% for report in reports %}
+                <tr>
+                    <td>{{ report.name }}</td>
+                    <td><span class="badge badge-{{ report.type|lower }}">{{ report.type }}</span></td>
+                    <td>{{ report.size }} KB</td>
+                    <td>{{ report.created }}</td>
+                    <td>
+                        <a href="{{ url_for('download_file', filename=report.name) }}" class="btn-sm btn-primary">Download</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>No reports generated yet.</p>
+        </div>
+        {% endif %}
+    </section>
+
+    <section class="results-section">
+        <div class="section-header">
+            <h3>Report Contents (5 Tabs)</h3>
+        </div>
+        <div class="report-info-grid">
+            <div class="info-card">
+                <h4>Tab 1: Master Summary</h4>
+                <p>Key metrics, risk score, funding recommendation, DTI, holdback</p>
+            </div>
+            <div class="info-card">
+                <h4>Tab 2: The Scrub</h4>
+                <p>Monthly gross vs. net revenue, excluded transactions with reasons</p>
+            </div>
+            <div class="info-card">
+                <h4>Tab 3: Reverse Engineering</h4>
+                <p>Detected MCA positions, payments, estimated balances, payoff dates</p>
+            </div>
+            <div class="info-card">
+                <h4>Tab 4: In-House Forensics</h4>
+                <p>Risk checklist (NSFs, negative days, cash, gambling, liens), red flags</p>
+            </div>
+            <div class="info-card">
+                <h4>Tab 5: Lender Match</h4>
+                <p>Eligible lenders with scores, disqualified with specific reasons</p>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}
