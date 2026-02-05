@@ -65,6 +65,32 @@ def get_formats(workbook: xlsxwriter.Workbook) -> Dict:
         'label': workbook.add_format({
             'bold': True, 'bg_color': '#f0f0f0', 'border': 1
         }),
+        'header_left': workbook.add_format({
+            'bold': True, 'bg_color': '#1e3a5f', 'font_color': 'white',
+            'border': 1, 'align': 'left'
+        }),
+        'value': workbook.add_format({
+            'border': 1, 'align': 'left'
+        }),
+        'pass': workbook.add_format({
+            'bg_color': '#dcfce7', 'font_color': '#166534', 'border': 1, 'bold': True
+        }),
+        'fail': workbook.add_format({
+            'bg_color': '#fee2e2', 'font_color': '#991b1b', 'border': 1, 'bold': True
+        }),
+        'warn': workbook.add_format({
+            'bg_color': '#fef3c7', 'font_color': '#92400e', 'border': 1, 'bold': True
+        }),
+        'section': workbook.add_format({
+            'bold': True, 'font_size': 12, 'bg_color': '#2563eb',
+            'font_color': 'white', 'border': 1
+        }),
+        'wrap': workbook.add_format({
+            'border': 1, 'text_wrap': True
+        }),
+        'currency_bold': workbook.add_format({
+            'bold': True, 'num_format': '$#,##0.00', 'border': 1
+        }),
     }
 
 
@@ -620,6 +646,288 @@ def add_red_flags_sheet(workbook: xlsxwriter.Workbook, risk_profile: Dict, forma
         row += 1
 
 
+def _add_forensics_tab(workbook: xlsxwriter.Workbook, formats: Dict, risk: Dict, fraud_flags: List) -> None:
+    ws = workbook.add_worksheet("In-House Forensics")
+    ws.set_column("A:A", 28)
+    ws.set_column("B:B", 14)
+    ws.set_column("C:C", 14)
+    ws.set_column("D:D", 50)
+
+    ws.write("A1", "IN-HOUSE FORENSICS CHECKLIST", formats['title'])
+
+    row = 3
+    ws.write(row, 0, "Check", formats['header'])
+    ws.write(row, 1, "Value", formats['header'])
+    ws.write(row, 2, "Result", formats['header'])
+    ws.write(row, 3, "Details", formats['header_left'])
+    row += 1
+
+    checks = [
+        ("NSF Count", risk.get("nsf_count", 0), risk.get("nsf_count", 0) <= 5,
+         f"{risk.get('nsf_count', 0)} NSFs, ${risk.get('nsf_total_fees', 0):.2f} in fees"),
+        ("Negative Days", risk.get("negative_day_count", 0), risk.get("negative_day_count", 0) <= 5,
+         f"{risk.get('consecutive_negative_days', 0)} consecutive, max ${abs(risk.get('max_negative_balance', 0)):,.2f}"),
+        ("Cash Deposits", f"{risk.get('cash_deposit_percent', 0):.1f}%",
+         not risk.get("cash_risk_flag", False),
+         f"${risk.get('cash_deposit_total', 0):,.2f} total cash deposits"),
+        ("Gambling Activity", "Detected" if risk.get("gambling_flag") else "None",
+         not risk.get("gambling_flag", False),
+         f"${risk.get('gambling_total', 0):,.2f} total" if risk.get("gambling_flag") else "No gambling transactions found"),
+        ("Tax Liens/Garnishments", str(sum(1 for f in risk.get("red_flags", []) if isinstance(f, dict) and f.get("category") in ("Tax", "Legal"))),
+         not any(isinstance(f, dict) and f.get("category") in ("Tax", "Legal") for f in risk.get("red_flags", [])),
+         "See red flags below" if risk.get("red_flags") else "No tax liens or garnishments found"),
+        ("DTI Ratio", "N/A", True, "See Master Summary"),
+        ("Revenue Trend", risk.get("velocity_flag", "stable"),
+         risk.get("velocity_flag", "stable") not in ("declining", "accelerating_decline"),
+         f"Velocity: {risk.get('revenue_velocity', 0):.1f}% MoM, Accel: {risk.get('revenue_acceleration', 0):.1f}%"),
+    ]
+
+    if fraud_flags:
+        checks.append(("PDF Metadata", "ALERT", False, "; ".join(fraud_flags)))
+    else:
+        checks.append(("PDF Metadata", "Clean", True, "No editing software detected"))
+
+    for check_name, value, passed, detail in checks:
+        ws.write(row, 0, check_name, formats['label'])
+        ws.write(row, 1, str(value), formats['value'])
+        ws.write(row, 2, "PASS" if passed else "FAIL", formats['pass'] if passed else formats['fail'])
+        ws.write(row, 3, detail, formats['wrap'])
+        row += 1
+
+    row += 2
+    red_flags = risk.get("red_flags", [])
+    ws.write(row, 0, "RED FLAGS", formats['section'])
+    row += 1
+
+    if not red_flags:
+        ws.write(row, 0, "No red flags detected.", formats['pass'])
+    else:
+        ws.write(row, 0, "Severity", formats['header'])
+        ws.write(row, 1, "Category", formats['header'])
+        ws.write(row, 2, "Date", formats['header'])
+        ws.write(row, 3, "Description", formats['header_left'])
+        row += 1
+        for flag in red_flags:
+            if isinstance(flag, str):
+                ws.write(row, 0, "MEDIUM", formats['warn'])
+                ws.write(row, 1, "", formats['value'])
+                ws.write(row, 2, "", formats['value'])
+                ws.write(row, 3, flag, formats['wrap'])
+            else:
+                sev = flag.get("severity", "MEDIUM")
+                sev_fmt = formats['fail'] if sev == "HIGH" else formats['warn']
+                ws.write(row, 0, sev, sev_fmt)
+                ws.write(row, 1, flag.get("category", ""), formats['value'])
+                ws.write(row, 2, flag.get("date", ""), formats['value'])
+                ws.write(row, 3, flag.get("description", ""), formats['wrap'])
+            row += 1
+
+    row += 2
+    expenses = risk.get("expenses_by_category", {})
+    if expenses:
+        ws.write(row, 0, "EXPENSE BREAKDOWN", formats['section'])
+        row += 1
+        ws.write(row, 0, "Category", formats['header'])
+        ws.write(row, 1, "Monthly Avg", formats['header'])
+        row += 1
+        for cat, total in sorted(expenses.items(), key=lambda x: -x[1]):
+            ws.write(row, 0, cat.title(), formats['label'])
+            ws.write(row, 1, total, formats['currency'])
+            row += 1
+
+
+def _add_deal_summary_tab(workbook: xlsxwriter.Workbook, formats: Dict, summary: Dict) -> None:
+    ws = workbook.add_worksheet("Deal Summary")
+    ws.set_column("A:A", 28)
+    ws.set_column("B:B", 20)
+    ws.set_column("C:C", 24)
+    ws.set_column("D:D", 18)
+    ws.set_column("E:H", 14)
+
+    row = 0
+    ws.write(row, 0, "DEAL SUMMARY - SPEC SHEET", formats['title'])
+    row += 2
+
+    ws.write(row, 0, "BUSINESS INFORMATION", formats['section'])
+    row += 1
+    info_fields = [
+        ("Legal Name", summary.get("legal_name", "")),
+        ("DBA", summary.get("dba", "")),
+        ("Industry", summary.get("industry", "")),
+        ("State", summary.get("state", "")),
+        ("FICO Score", summary.get("fico_score", 0)),
+        ("Time in Business", f"{summary.get('time_in_business_months', 0)} months"),
+        ("Ownership", f"{summary.get('ownership_percent', 100)}%"),
+        ("Deal Type", summary.get("deal_type", "")),
+        ("Tier", summary.get("tier", "")),
+    ]
+    for label, value in info_fields:
+        ws.write(row, 0, label, formats['label'])
+        if label == "Tier":
+            t = str(value)
+            t_fmt = formats['pass'] if t in ("A", "B") else formats['warn'] if t == "C" else formats['fail']
+            ws.write(row, 1, t, t_fmt)
+        else:
+            ws.write(row, 1, value, formats['value'])
+        row += 1
+
+    row += 1
+    ws.write(row, 0, "REVENUE SUMMARY", formats['section'])
+    row += 1
+    ws.write(row, 0, "Avg Monthly Revenue", formats['label'])
+    ws.write(row, 1, summary.get("avg_monthly_revenue", 0), formats['currency'])
+    ws.write(row, 2, "Annualized Revenue", formats['label'])
+    ws.write(row, 3, summary.get("annualized_revenue", 0), formats['currency'])
+    row += 1
+    ws.write(row, 0, "Lowest Month", formats['label'])
+    ws.write(row, 1, summary.get("lowest_month_revenue", 0), formats['currency'])
+    ws.write(row, 2, "Highest Month", formats['label'])
+    ws.write(row, 3, summary.get("highest_month_revenue", 0), formats['currency'])
+    row += 1
+    trend = summary.get("revenue_trend", "")
+    ws.write(row, 0, "Revenue Trend", formats['label'])
+    t_fmt = formats['pass'] if trend == "Growing" else formats['fail'] if trend == "Declining" else formats['value']
+    ws.write(row, 1, trend or "N/A", t_fmt)
+    ws.write(row, 2, "Avg Daily Balance", formats['label'])
+    ws.write(row, 3, summary.get("avg_daily_balance", 0), formats['currency'])
+    row += 1
+    ws.write(row, 0, "Total NSFs", formats['label'])
+    nsf = summary.get("total_nsf_count", 0)
+    ws.write(row, 1, nsf, formats['fail'] if nsf > 3 else formats['value'])
+    ws.write(row, 2, "Total Negative Days", formats['label'])
+    neg = summary.get("total_negative_days", 0)
+    ws.write(row, 3, neg, formats['fail'] if neg > 5 else formats['value'])
+
+    row += 2
+    ws.write(row, 0, "CURRENT POSITIONS", formats['section'])
+    row += 1
+    ws.write(row, 0, "Position Count", formats['label'])
+    ws.write(row, 1, summary.get("position_count", 0), formats['number'])
+    ws.write(row, 2, "Days Since Last Funding", formats['label'])
+    ws.write(row, 3, summary.get("days_since_last_funding", 0), formats['number'])
+    row += 1
+    ws.write(row, 0, "Current Monthly Holdback", formats['label'])
+    ws.write(row, 1, summary.get("total_current_holdback", 0), formats['currency'])
+    ws.write(row, 2, "Current Holdback %", formats['label'])
+    hb_pct = summary.get("current_holdback_percent", 0)
+    ws.write(row, 3, f"{hb_pct:.1f}%", formats['fail'] if hb_pct > 40 else formats['warn'] if hb_pct > 30 else formats['value'])
+    row += 1
+    ws.write(row, 0, "Total Remaining Balance", formats['label'])
+    ws.write(row, 1, summary.get("total_remaining_balance", 0), formats['currency'])
+    row += 1
+
+    positions = summary.get("positions", [])
+    if positions:
+        row += 1
+        pos_headers = ["#", "Funder", "Payment", "Freq", "Funded Amt", "Remaining", "Paid In %", "Est. Payoff"]
+        for col, h in enumerate(pos_headers):
+            ws.write(row, col, h, formats['header'])
+        row += 1
+        for pos in positions:
+            ws.write(row, 0, pos.get("position", ""), formats['number'])
+            ws.write(row, 1, pos.get("funder", ""), formats['value'])
+            ws.write(row, 2, pos.get("payment", 0), formats['currency'])
+            ws.write(row, 3, pos.get("frequency", ""), formats['value'])
+            ws.write(row, 4, pos.get("funded_amount", 0), formats['currency'])
+            ws.write(row, 5, pos.get("remaining", 0), formats['currency'])
+            pct = pos.get("paid_in_pct", 0)
+            ws.write(row, 6, f"{pct:.1f}%", formats['pass'] if pct > 50 else formats['warn'])
+            ws.write(row, 7, pos.get("est_payoff", ""), formats['value'])
+            row += 1
+
+    row += 1
+    ws.write(row, 0, "PROPOSED DEAL", formats['section'])
+    row += 1
+    ws.write(row, 0, "Funding Amount", formats['label'])
+    ws.write(row, 1, summary.get("proposed_funding", 0), formats['currency_bold'])
+    ws.write(row, 2, "Factor Rate", formats['label'])
+    ws.write(row, 3, summary.get("proposed_factor_rate", 0), formats['value'])
+    row += 1
+    ws.write(row, 0, "Total Payback", formats['label'])
+    ws.write(row, 1, summary.get("proposed_payback", 0), formats['currency'])
+    ws.write(row, 2, "Term", formats['label'])
+    ws.write(row, 3, f"{summary.get('proposed_term_months', 0)} months", formats['value'])
+    row += 1
+    ws.write(row, 0, "Payment Amount", formats['label'])
+    ws.write(row, 1, summary.get("proposed_payment", 0), formats['currency'])
+    ws.write(row, 2, "Frequency", formats['label'])
+    ws.write(row, 3, summary.get("proposed_frequency", ""), formats['value'])
+
+    row += 2
+    ws.write(row, 0, "NEW DEAL IMPACT", formats['section'])
+    row += 1
+    ws.write(row, 0, "New Monthly Holdback", formats['label'])
+    ws.write(row, 1, summary.get("new_holdback_amount", 0), formats['currency'])
+    row += 1
+    ws.write(row, 0, "Combined Monthly Holdback", formats['label'])
+    ws.write(row, 1, summary.get("combined_holdback", 0), formats['currency_bold'])
+    ws.write(row, 2, "Combined Holdback %", formats['label'])
+    cb_pct = summary.get("combined_holdback_percent", 0)
+    ws.write(row, 3, f"{cb_pct:.1f}%", formats['fail'] if cb_pct > 40 else formats['warn'] if cb_pct > 30 else formats['pass'])
+    row += 1
+    ws.write(row, 0, "Net Available After", formats['label'])
+    ws.write(row, 1, summary.get("net_available_after", 0), formats['currency'])
+    ws.write(row, 2, "ADB/Payment Ratio", formats['label'])
+    adb_r = summary.get("adb_to_payment_ratio", 0)
+    ws.write(row, 3, f"{adb_r:.2f}x", formats['pass'] if adb_r >= 3.5 else formats['fail'] if adb_r > 0 else formats['value'])
+
+    row += 2
+    ws.write(row, 0, "RECOMMENDATIONS", formats['section'])
+    row += 1
+    ws.write(row, 0, "Max Recommended Funding", formats['label'])
+    ws.write(row, 1, summary.get("max_recommended_funding", 0), formats['currency_bold'])
+    ws.write(row, 2, "Max Daily Payment", formats['label'])
+    ws.write(row, 3, summary.get("max_daily_payment", 0), formats['currency'])
+
+    row += 2
+    ws.write(row, 0, "RISK FLAGS", formats['section'])
+    row += 1
+    risk_flags = summary.get("risk_flags", [])
+    if risk_flags:
+        for flag in risk_flags:
+            ws.write(row, 0, "WARNING", formats['fail'])
+            ws.write(row, 1, flag, formats['wrap'])
+            row += 1
+    else:
+        ws.write(row, 0, "CLEAR", formats['pass'])
+        ws.write(row, 1, "No major risk flags identified", formats['pass'])
+        row += 1
+
+    row += 1
+    top_matches = summary.get("top_lender_matches", [])
+    ws.write(row, 0, "TOP LENDER MATCHES", formats['section'])
+    row += 1
+    ws.write(row, 0, "Eligible Lenders", formats['label'])
+    ws.write(row, 1, summary.get("eligible_lender_count", 0), formats['number'])
+    row += 1
+    if top_matches:
+        for m in top_matches[:5]:
+            ws.write(row, 0, m.get("lender_name", ""), formats['value'])
+            ws.write(row, 1, f"Score: {m.get('match_score', 0)}", formats['value'])
+            row += 1
+
+    row += 1
+    monthly = summary.get("monthly_breakdown", [])
+    if monthly:
+        ws.write(row, 0, "MONTHLY BREAKDOWN", formats['section'])
+        row += 1
+        m_headers = ["Month", "Net Revenue", "NSFs", "Neg Days", "ADB", "Deposits", "Holdback $", "Holdback %"]
+        for col, h in enumerate(m_headers):
+            ws.write(row, col, h, formats['header'])
+        row += 1
+        for mo in monthly:
+            ws.write(row, 0, mo.get("month", ""), formats['value'])
+            ws.write(row, 1, mo.get("net_revenue", 0), formats['currency'])
+            ws.write(row, 2, mo.get("nsf_count", 0), formats['number'])
+            ws.write(row, 3, mo.get("negative_days", 0), formats['number'])
+            ws.write(row, 4, mo.get("avg_daily_balance", 0), formats['currency'])
+            ws.write(row, 5, mo.get("deposit_count", 0), formats['number'])
+            ws.write(row, 6, mo.get("holdback_amount", 0), formats['currency'])
+            hb = mo.get("holdback_percent", 0)
+            ws.write(row, 7, f"{hb:.1f}%", formats['warn'] if hb > 30 else formats['value'])
+            row += 1
+
+
 def generate_json_output(full_data: Dict, output_path: str) -> None:
     """
     Generate JSON output file with all analysis data.
@@ -643,11 +951,14 @@ def generate_master_report(
     monthly_data: Optional[pd.DataFrame],
     risk_profile: Dict,
     lender_matches: List[Dict],
-    output_dir: str = "output_reports"
+    output_dir: str = "output_reports",
+    fraud_flags: Optional[List] = None,
+    deal_summary: Optional[Dict] = None
 ) -> str:
     """
     Main function to generate the complete Master Excel report.
-    Now includes enhanced MCA positions, funding analysis, and red flags.
+    Now includes enhanced MCA positions, funding analysis, red flags,
+    forensics tab, and deal summary (spec sheet) tab.
     """
     os.makedirs(output_dir, exist_ok=True)
     
@@ -680,9 +991,49 @@ def generate_master_report(
         add_funding_analysis_sheet(workbook, risk_profile, formats)
         
         add_red_flags_sheet(workbook, risk_profile, formats)
+        
+        nsf = risk_profile.get('nsf_analysis', {})
+        neg = risk_profile.get('negative_days', {})
+        cash = risk_profile.get('cash_activity', {})
+        gamb = risk_profile.get('gambling', {})
+        rf_data = risk_profile.get('red_flags', {})
+        rf_list = rf_data.get('red_flags', []) if isinstance(rf_data, dict) else (rf_data if isinstance(rf_data, list) else [])
+        vel_raw = risk_profile.get('revenue_velocity', 0)
+        vel_flag = risk_profile.get('velocity_flag', 'stable')
+        accel_raw = risk_profile.get('revenue_acceleration', 0)
+        flat_risk = {
+            'nsf_count': nsf.get('nsf_count', 0),
+            'nsf_total_fees': nsf.get('nsf_total_fees', 0),
+            'negative_day_count': neg.get('negative_days_count', 0),
+            'consecutive_negative_days': neg.get('max_consecutive_negative', neg.get('negative_days_count', 0)),
+            'max_negative_balance': neg.get('max_negative', 0),
+            'cash_deposit_percent': risk_profile.get('cash_deposit_percent', cash.get('cash_percentage', 0)),
+            'cash_deposit_total': risk_profile.get('cash_deposit_total', cash.get('cash_deposit_total', 0)),
+            'cash_risk_flag': risk_profile.get('cash_risk_flag', cash.get('high_cash_flag', False)),
+            'gambling_flag': risk_profile.get('gambling_flag', gamb.get('gambling_flag', False)),
+            'gambling_total': risk_profile.get('gambling_total', gamb.get('gambling_total', 0)),
+            'red_flags': rf_list,
+            'velocity_flag': vel_flag if isinstance(vel_flag, str) else 'stable',
+            'revenue_velocity': vel_raw if isinstance(vel_raw, (int, float)) else 0,
+            'revenue_acceleration': accel_raw if isinstance(accel_raw, (int, float)) else 0,
+            'expenses_by_category': risk_profile.get('expenses_by_category', {}),
+        }
+        enhanced_risk = summary_data.get('enhanced_risk', {}) if summary_data else {}
+        if enhanced_risk:
+            flat_risk.update({
+                'velocity_flag': enhanced_risk.get('velocity_flag', flat_risk.get('velocity_flag', 'stable')),
+                'revenue_velocity': enhanced_risk.get('revenue_velocity', flat_risk.get('revenue_velocity', 0)),
+                'revenue_acceleration': enhanced_risk.get('revenue_acceleration', flat_risk.get('revenue_acceleration', 0)),
+                'red_flags': enhanced_risk.get('red_flags', flat_risk.get('red_flags', [])),
+                'expenses_by_category': enhanced_risk.get('expenses_by_category', flat_risk.get('expenses_by_category', {})),
+            })
+        _add_forensics_tab(workbook, formats, flat_risk, fraud_flags or [])
     
     if lender_matches:
         add_lender_matches_sheet(workbook, lender_matches, formats)
+    
+    if deal_summary:
+        _add_deal_summary_tab(workbook, formats, deal_summary)
     
     workbook.close()
     
@@ -700,3 +1051,104 @@ def generate_master_report(
     generate_json_output(json_data, json_path)
     
     return output_path
+
+
+def generate_report(
+    merchant_name: str,
+    scrub_data: dict,
+    risk_data: dict,
+    position_data: dict,
+    calculation_data: dict,
+    lender_match_data: dict,
+    output_path: str,
+    fraud_flags: list = None,
+    raw_transactions: list = None,
+    deal_summary: dict = None,
+) -> str:
+    """
+    Engine-compatible alias for generate_master_report().
+    Wraps the engine API signature to call the existing report generation logic.
+    """
+    summary_data = {
+        'account_info': {
+            'bank_name': scrub_data.get('bank_name', 'N/A'),
+            'account_number': scrub_data.get('account_number', 'N/A'),
+        },
+        'revenue_metrics': {
+            'gross_deposits': scrub_data.get('total_gross', 0),
+            'net_revenue': scrub_data.get('total_net', 0),
+            'monthly_average_deposits': scrub_data.get('avg_monthly_net', 0),
+        },
+    }
+
+    transactions = raw_transactions or []
+
+    monthly_data = None
+    monthly_gross = scrub_data.get('monthly_gross', {})
+    monthly_net = scrub_data.get('monthly_net', {})
+    if monthly_gross or monthly_net:
+        all_months = sorted(set(list(monthly_gross.keys()) + list(monthly_net.keys())))
+        rows = []
+        for m in all_months:
+            rows.append({
+                'month': m,
+                'deposits': monthly_gross.get(m, 0),
+                'withdrawals': 0,
+                'net': monthly_net.get(m, 0),
+            })
+        if rows:
+            monthly_data = pd.DataFrame(rows)
+
+    risk_profile = {
+        'risk_score': {
+            'risk_score': risk_data.get('risk_score', 0),
+            'risk_tier': risk_data.get('risk_tier', 'D'),
+            'risk_factors': risk_data.get('risk_factors', []),
+        },
+        'nsf_analysis': {
+            'nsf_count': risk_data.get('nsf_count', 0),
+            'nsf_total_fees': risk_data.get('nsf_total_fees', 0),
+        },
+        'negative_days': {
+            'negative_days_count': risk_data.get('negative_day_count', 0),
+            'negative_percentage': risk_data.get('negative_percentage', 0),
+            'max_negative': risk_data.get('max_negative_balance', 0),
+        },
+        'mca_positions': {
+            'unique_mca_lenders': position_data.get('total_positions', 0),
+            'stacking_detected': position_data.get('total_positions', 0) > 1,
+            'mca_total_payments': position_data.get('total_monthly_payment', 0),
+        },
+        'cash_activity': {
+            'cash_deposit_total': risk_data.get('cash_deposit_total', 0),
+            'cash_percentage': risk_data.get('cash_deposit_percent', 0),
+        },
+        'red_flags': risk_data.get('red_flags', []),
+        'nsf_count': risk_data.get('nsf_count', 0),
+        'nsf_total_fees': risk_data.get('nsf_total_fees', 0),
+        'negative_day_count': risk_data.get('negative_day_count', 0),
+        'consecutive_negative_days': risk_data.get('consecutive_negative_days', 0),
+        'max_negative_balance': risk_data.get('max_negative_balance', 0),
+        'cash_deposit_percent': risk_data.get('cash_deposit_percent', 0),
+        'cash_risk_flag': risk_data.get('cash_risk_flag', False),
+        'cash_deposit_total': risk_data.get('cash_deposit_total', 0),
+        'gambling_flag': risk_data.get('gambling_flag', False),
+        'gambling_total': risk_data.get('gambling_total', 0),
+        'velocity_flag': risk_data.get('velocity_flag', 'stable'),
+        'revenue_velocity': risk_data.get('revenue_velocity', 0),
+        'revenue_acceleration': risk_data.get('revenue_acceleration', 0),
+        'expenses_by_category': risk_data.get('expenses_by_category', {}),
+    }
+
+    lender_matches = lender_match_data.get('eligible_lenders', []) if isinstance(lender_match_data, dict) else []
+
+    return generate_master_report(
+        summary_data=summary_data,
+        transactions=transactions,
+        monthly_data=monthly_data,
+        risk_profile=risk_profile,
+        lender_matches=lender_matches,
+        output_dir=output_path,
+        fraud_flags=fraud_flags,
+        deal_summary=deal_summary,
+    )

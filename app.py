@@ -10,10 +10,32 @@ from flask import Flask, render_template, request, redirect, url_for, flash, jso
 from werkzeug.utils import secure_filename
 
 from core_logic.ocr_engine import process_bank_statement
-from core_logic.scrubber import scrub_transactions
-from core_logic.risk_engine import generate_risk_profile
+from core_logic.scrubber import scrub_transactions, detect_inter_account_transfers, analyze_concentration
+from core_logic.risk_engine import generate_risk_profile, analyze_risk
 from core_logic.lender_matcher import find_matching_lenders
 from core_logic.reporter import generate_master_report
+from core_logic.position_detector import detect_positions
+from core_logic.calculator import calculate_full_deal_metrics, calculate_deal_summary
+
+CONFIG_DIR = 'config'
+
+def load_keywords():
+    kw_path = os.path.join(CONFIG_DIR, 'keywords.json')
+    if os.path.exists(kw_path):
+        with open(kw_path, 'r') as f:
+            return json.load(f)
+    return {}
+
+def load_factor_rates():
+    fr_path = os.path.join(CONFIG_DIR, 'factor_rates.json')
+    if os.path.exists(fr_path):
+        with open(fr_path, 'r') as f:
+            return json.load(f)
+    frc_path = os.path.join(CONFIG_DIR, 'funder_rates_complete.json')
+    if os.path.exists(frc_path):
+        with open(frc_path, 'r') as f:
+            return json.load(f)
+    return {"default_rate": 1.35, "lender_rates": {}}
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'mca-underwriting-dev-key')
@@ -143,8 +165,10 @@ def run_combined_pipeline(pdf_paths):
     """
     Run the complete underwriting pipeline on MULTIPLE PDFs.
     Combines all transactions into ONE consolidated report.
+    Enhanced with position detection, keyword-based analysis, and fraud detection.
     """
-    from core_logic.calculator import calculate_full_deal_metrics
+    keywords = load_keywords()
+    factor_rates = load_factor_rates()
     
     result = {
         'filenames': [os.path.basename(p) for p in pdf_paths],
@@ -154,11 +178,11 @@ def run_combined_pipeline(pdf_paths):
     }
     
     try:
-        # Step 1: Extract transactions from ALL PDFs
         all_transactions = []
         all_account_info = {}
         bank_formats = []
         total_pages = 0
+        all_fraud_flags = []
         
         for pdf_path in pdf_paths:
             ocr_data = process_bank_statement(pdf_path)
@@ -168,17 +192,20 @@ def run_combined_pipeline(pdf_paths):
                 bank_formats.append(ocr_data.get('bank_format', 'unknown'))
                 total_pages += ocr_data.get('page_count', 1)
                 
-                # Merge account info (use first one with data)
+                if ocr_data.get('fraud_flags'):
+                    all_fraud_flags.extend(ocr_data['fraud_flags'])
+                
                 if not all_account_info and ocr_data.get('account_info'):
                     all_account_info = ocr_data.get('account_info', {})
         
         unique_banks = list(set(bank_formats))
         bank_str = ', '.join(unique_banks) if unique_banks else 'unknown'
         
+        fraud_msg = f', {len(all_fraud_flags)} fraud flag(s)' if all_fraud_flags else ''
         result['steps'].append({
             'name': 'OCR Extraction',
             'status': 'complete',
-            'message': f'Extracted {len(all_transactions)} transactions from {len(pdf_paths)} files ({bank_str})'
+            'message': f'Extracted {len(all_transactions)} transactions from {len(pdf_paths)} files ({bank_str}){fraud_msg}'
         })
         
         if not all_transactions:
@@ -190,21 +217,22 @@ def run_combined_pipeline(pdf_paths):
             result['status'] = 'error'
             return result
         
-        # Sort transactions by date
         all_transactions.sort(key=lambda x: x.get('date', ''))
         
-        # Step 2: Scrub combined transactions
-        scrubbed_data = scrub_transactions(all_transactions)
+        scrubbed_data = scrub_transactions(all_transactions, keywords=keywords if keywords else None)
         
         if scrubbed_data and scrubbed_data.get('transactions'):
             revenue = scrubbed_data.get('revenue_metrics', {})
             monthly_avg = revenue.get('monthly_average_deposits', 0)
             transfer_count = scrubbed_data.get('transfer_count', 0)
-            months_count = len(scrubbed_data.get('monthly_data', {}).get('monthly_breakdown', []))
+            excluded_count = len(scrubbed_data.get('excluded_transactions', []))
+            monthly_data = scrubbed_data.get('monthly_data', {})
+            months_count = len(monthly_data.get('monthly_breakdown', [])) if isinstance(monthly_data, dict) else 0
+            excl_msg = f', {excluded_count} excluded' if excluded_count > 0 else ''
             result['steps'].append({
                 'name': 'Transaction Scrubbing',
                 'status': 'complete',
-                'message': f'{months_count} months analyzed, Monthly avg: ${monthly_avg:,.0f}, {transfer_count} transfers'
+                'message': f'{months_count} months analyzed, Monthly avg: ${monthly_avg:,.0f}, {transfer_count} transfers{excl_msg}'
             })
         else:
             scrubbed_data = {'transactions': [], 'revenue_metrics': {}, 'monthly_data': None, 'daily_balances': None}
@@ -214,10 +242,23 @@ def run_combined_pipeline(pdf_paths):
                 'message': 'Transactions processed'
             })
         
-        # Step 3: Risk Analysis on combined data
         daily_balances = scrubbed_data.get('daily_balances')
         scrubbed_transactions = scrubbed_data.get('transactions', [])
+        monthly_revenue = scrubbed_data.get('revenue_metrics', {}).get('monthly_average_deposits', 0)
+        
         risk_profile = generate_risk_profile(scrubbed_transactions, daily_balances)
+        
+        enhanced_risk = {}
+        if keywords:
+            try:
+                enhanced_risk = analyze_risk(
+                    scrubbed_transactions,
+                    daily_balances=daily_balances,
+                    keywords=keywords,
+                    net_revenue=monthly_revenue,
+                )
+            except Exception:
+                enhanced_risk = {}
         
         if risk_profile:
             risk_score = risk_profile.get('risk_score', {})
@@ -225,19 +266,38 @@ def run_combined_pipeline(pdf_paths):
             score = risk_score.get('risk_score', 0)
             nsf = risk_profile.get('nsf_analysis', {}).get('nsf_count', 0)
             mca_count = risk_profile.get('mca_positions', {}).get('unique_mca_lenders', 0)
+            
+            velocity_msg = ''
+            if enhanced_risk.get('velocity_flag') and enhanced_risk['velocity_flag'] != 'stable':
+                velocity_msg = f', Revenue: {enhanced_risk["velocity_flag"]}'
+            red_flag_count = len(enhanced_risk.get('red_flags', []))
+            rf_msg = f', {red_flag_count} red flag(s)' if red_flag_count > 0 else ''
+            
             result['steps'].append({
                 'name': 'Risk Analysis',
                 'status': 'complete',
-                'message': f'Tier {tier} (Score: {score}), {nsf} NSFs, {mca_count} MCA positions'
+                'message': f'Tier {tier} (Score: {score}), {nsf} NSFs, {mca_count} MCA positions{velocity_msg}{rf_msg}'
             })
         else:
             risk_profile = {}
         
-        # Step 4: Calculate Deal Metrics
-        monthly_revenue = scrubbed_data.get('revenue_metrics', {}).get('monthly_average_deposits', 0)
+        position_data = {}
+        if keywords:
+            try:
+                position_data = detect_positions(scrubbed_transactions, keywords, factor_rates)
+                pos_count = position_data.get('total_positions', 0)
+                total_monthly = position_data.get('total_monthly_payment', 0)
+                if pos_count > 0:
+                    result['steps'].append({
+                        'name': 'Position Detection',
+                        'status': 'complete',
+                        'message': f'{pos_count} MCA positions detected, ${total_monthly:,.0f}/mo total holdback'
+                    })
+            except Exception:
+                position_data = {}
+        
         deal_metrics = calculate_full_deal_metrics(monthly_revenue, risk_profile) if monthly_revenue > 0 else {}
         
-        # Step 5: Lender Matching
         applicant_profile = {
             'monthly_revenue': monthly_revenue,
             'nsf_count': risk_profile.get('nsf_analysis', {}).get('nsf_count', 0),
@@ -262,12 +322,13 @@ def run_combined_pipeline(pdf_paths):
         else:
             lender_matches = {'matches': []}
         
-        # Step 6: Generate ONE consolidated report
         summary_data = {
             'account_info': all_account_info,
             'revenue_metrics': scrubbed_data.get('revenue_metrics', {}),
             'risk_profile': risk_profile,
+            'enhanced_risk': enhanced_risk,
             'deal_metrics': deal_metrics,
+            'position_data': position_data,
             'files_processed': len(pdf_paths),
             'total_pages': total_pages,
         }
@@ -278,7 +339,8 @@ def run_combined_pipeline(pdf_paths):
             monthly_data=scrubbed_data.get('monthly_data'),
             risk_profile=risk_profile,
             lender_matches=lender_matches.get('matches', []),
-            output_dir=OUTPUT_FOLDER
+            output_dir=OUTPUT_FOLDER,
+            fraud_flags=all_fraud_flags,
         )
         
         if report_path:
@@ -303,6 +365,8 @@ def run_combined_pipeline(pdf_paths):
             'monthly_revenue': monthly_revenue,
             'risk_tier': risk_profile.get('risk_score', {}).get('risk_tier', 'N/A'),
             'eligible_lenders': lender_matches.get('summary', {}).get('eligible_count', 0) if lender_matches else 0,
+            'positions_detected': position_data.get('total_positions', 0),
+            'fraud_flags': len(all_fraud_flags),
         }
         
     except Exception as e:
@@ -313,7 +377,6 @@ def run_combined_pipeline(pdf_paths):
         })
         result['status'] = 'error'
     
-    # Save processing result
     result_filename = f"combined_result_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     result_path = os.path.join(PROCESSED_FOLDER, result_filename)
     with open(result_path, 'w') as f:
@@ -325,9 +388,10 @@ def run_combined_pipeline(pdf_paths):
 def run_pipeline(pdf_path):
     """
     Run the complete underwriting pipeline on a single PDF.
-    Returns processing result dictionary with full analysis.
+    Enhanced with position detection, keyword-based analysis, and fraud detection.
     """
-    from core_logic.calculator import calculate_full_deal_metrics
+    keywords = load_keywords()
+    factor_rates = load_factor_rates()
     
     result = {
         'filename': os.path.basename(pdf_path),
@@ -336,15 +400,16 @@ def run_pipeline(pdf_path):
     }
     
     try:
-        # Step 1: OCR - Extract text and parse transactions
         ocr_data = process_bank_statement(pdf_path)
         if ocr_data and ocr_data.get('success'):
             txn_count = len(ocr_data.get('transactions', []))
             bank = ocr_data.get('bank_format', 'unknown')
+            fraud_flags = ocr_data.get('fraud_flags', [])
+            fraud_msg = f', {len(fraud_flags)} fraud flag(s)' if fraud_flags else ''
             result['steps'].append({
                 'name': 'OCR Extraction', 
                 'status': 'complete', 
-                'message': f'Extracted {txn_count} transactions from {bank} statement'
+                'message': f'Extracted {txn_count} transactions from {bank} statement{fraud_msg}'
             })
         else:
             error_msg = ocr_data.get('error', 'Unknown error') if ocr_data else 'Failed to process PDF'
@@ -353,11 +418,10 @@ def run_pipeline(pdf_path):
                 'status': 'error', 
                 'message': error_msg
             })
-            ocr_data = {'transactions': [], 'account_info': {}, 'summary': {}}
+            ocr_data = {'transactions': [], 'account_info': {}, 'summary': {}, 'fraud_flags': []}
         
-        # Step 2: Scrubbing - Clean transactions and calculate revenue
         transactions = ocr_data.get('transactions', [])
-        scrubbed_data = scrub_transactions(transactions)
+        scrubbed_data = scrub_transactions(transactions, keywords=keywords if keywords else None)
         
         if scrubbed_data and scrubbed_data.get('transactions'):
             revenue = scrubbed_data.get('revenue_metrics', {})
@@ -376,10 +440,22 @@ def run_pipeline(pdf_path):
             })
             scrubbed_data = {'transactions': [], 'revenue_metrics': {}, 'monthly_data': None, 'daily_balances': None}
         
-        # Step 3: Risk Analysis - NSFs, negative days, MCAs
         daily_balances = scrubbed_data.get('daily_balances')
         scrubbed_transactions = scrubbed_data.get('transactions', [])
+        monthly_revenue = scrubbed_data.get('revenue_metrics', {}).get('monthly_average_deposits', 0)
         risk_profile = generate_risk_profile(scrubbed_transactions, daily_balances)
+        
+        enhanced_risk = {}
+        if keywords:
+            try:
+                enhanced_risk = analyze_risk(
+                    scrubbed_transactions,
+                    daily_balances=daily_balances,
+                    keywords=keywords,
+                    net_revenue=monthly_revenue,
+                )
+            except Exception:
+                enhanced_risk = {}
         
         if risk_profile:
             risk_score = risk_profile.get('risk_score', {})
@@ -392,27 +468,34 @@ def run_pipeline(pdf_path):
                 'message': f'Tier {tier} (Score: {score}), {nsf} NSFs detected'
             })
         else:
-            result['steps'].append({
-                'name': 'Risk Analysis', 
-                'status': 'complete', 
-                'message': 'Risk analysis complete'
-            })
             risk_profile = {}
         
-        # Step 4: Calculate Deal Metrics using calculator
-        monthly_revenue = scrubbed_data.get('revenue_metrics', {}).get('monthly_average_deposits', 0)
+        position_data = {}
+        if keywords:
+            try:
+                position_data = detect_positions(scrubbed_transactions, keywords, factor_rates)
+                pos_count = position_data.get('total_positions', 0)
+                total_monthly = position_data.get('total_monthly_payment', 0)
+                if pos_count > 0:
+                    result['steps'].append({
+                        'name': 'Position Detection',
+                        'status': 'complete',
+                        'message': f'{pos_count} MCA positions detected, ${total_monthly:,.0f}/mo total holdback'
+                    })
+            except Exception:
+                position_data = {}
+        
         deal_metrics = calculate_full_deal_metrics(monthly_revenue, risk_profile) if monthly_revenue > 0 else {}
         
-        # Step 5: Lender Matching - Find eligible lenders
         applicant_profile = {
             'monthly_revenue': monthly_revenue,
             'nsf_count': risk_profile.get('nsf_analysis', {}).get('nsf_count', 0),
             'negative_days': risk_profile.get('negative_days', {}).get('negative_days_count', 0),
             'existing_positions': risk_profile.get('mca_positions', {}).get('unique_mca_lenders', 0),
-            'time_in_business_months': 12,  # Default assumption
-            'credit_score': 600,  # Default assumption for matching
-            'industry': 'general',  # Default industry
-            'state': 'CA',  # Default state
+            'time_in_business_months': 12,
+            'credit_score': 600,
+            'industry': 'general',
+            'state': 'CA',
         }
         lender_matches = find_matching_lenders(applicant_profile)
         
@@ -426,20 +509,15 @@ def run_pipeline(pdf_path):
                 'message': f'{eligible} of {total} lenders matched'
             })
         else:
-            result['steps'].append({
-                'name': 'Lender Matching', 
-                'status': 'complete', 
-                'message': 'Lender matching complete'
-            })
             lender_matches = {'matches': []}
         
-        # Step 6: Report Generation - Create Excel report
-        # Build proper summary_data structure expected by reporter
         summary_data = {
             'account_info': ocr_data.get('account_info', {}),
             'revenue_metrics': scrubbed_data.get('revenue_metrics', {}),
             'risk_profile': risk_profile,
+            'enhanced_risk': enhanced_risk,
             'deal_metrics': deal_metrics,
+            'position_data': position_data,
         }
         
         report_path = generate_master_report(
@@ -448,7 +526,8 @@ def run_pipeline(pdf_path):
             monthly_data=scrubbed_data.get('monthly_data'),
             risk_profile=risk_profile,
             lender_matches=lender_matches.get('matches', []),
-            output_dir=OUTPUT_FOLDER
+            output_dir=OUTPUT_FOLDER,
+            fraud_flags=ocr_data.get('fraud_flags', []),
         )
         
         if report_path:
@@ -466,17 +545,17 @@ def run_pipeline(pdf_path):
                 'message': 'Failed to generate report'
             })
         
-        # Overall status
         all_complete = all(s['status'] == 'complete' for s in result['steps'])
         result['status'] = 'complete' if all_complete else 'partial'
         
-        # Add summary data to result
         result['summary'] = {
             'bank': ocr_data.get('bank_format', 'unknown'),
             'transaction_count': len(scrubbed_transactions),
             'monthly_revenue': monthly_revenue,
             'risk_tier': risk_profile.get('risk_score', {}).get('risk_tier', 'N/A'),
             'eligible_lenders': lender_matches.get('summary', {}).get('eligible_count', 0),
+            'positions_detected': position_data.get('total_positions', 0),
+            'fraud_flags': len(ocr_data.get('fraud_flags', [])),
         }
         
     except Exception as e:
@@ -487,7 +566,6 @@ def run_pipeline(pdf_path):
         })
         result['status'] = 'error'
     
-    # Save result to processed data
     result_filename = os.path.basename(pdf_path).replace('.pdf', '_result.json')
     with open(os.path.join(PROCESSED_FOLDER, result_filename), 'w') as f:
         json.dump(result, f, indent=2, default=str)

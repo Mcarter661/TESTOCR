@@ -1,13 +1,26 @@
 """
 OCR Engine Module
 Handles PDF text extraction and bank statement parsing using pdfplumber.
+Extracts transactions, account info, and checks for fraud indicators.
+
+Strategy:
+1. Try pdfplumber first (fast, works on digital PDFs)
+2. If no text found, fall back to pytesseract OCR (slower, works on scanned PDFs)
 """
 
 import pdfplumber
 import re
 from typing import List, Dict, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timedelta
+from dateutil import parser as date_parser
 import os
+
+try:
+    import pytesseract
+    from pdf2image import convert_from_path
+    OCR_AVAILABLE = True
+except ImportError:
+    OCR_AVAILABLE = False
 
 
 BANK_PATTERNS = {
@@ -39,6 +52,109 @@ DATE_PATTERNS = [
 AMOUNT_PATTERN = r'[\$]?\s*[\-\(]?\s*[\d,]+\.?\d{0,2}\s*[\)]?'
 
 
+def _safe_parse_date(date_str: str) -> Optional[str]:
+    """Parse a date string into YYYY-MM-DD format, returning None on failure."""
+    if not date_str or not date_str.strip():
+        return None
+    date_str = date_str.strip()
+    formats = [
+        "%m/%d/%Y", "%m-%d-%Y", "%m/%d/%y", "%m-%d-%y",
+        "%m/%d", "%Y-%m-%d", "%B %d, %Y", "%b %d, %Y",
+        "%B %d %Y", "%b %d %Y", "%b. %d, %Y",
+    ]
+    for fmt in formats:
+        try:
+            dt = datetime.strptime(date_str, fmt)
+            if dt.year < 100:
+                dt = dt.replace(year=dt.year + 2000)
+            if fmt == "%m/%d":
+                dt = dt.replace(year=datetime.now().year)
+            return dt.strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    try:
+        dt = date_parser.parse(date_str, fuzzy=True)
+        return dt.strftime("%Y-%m-%d")
+    except (ValueError, OverflowError):
+        return None
+
+
+def _parse_amount(amount_str: str) -> float:
+    """Parse a currency string into a float."""
+    if not amount_str:
+        return 0.0
+    s = str(amount_str).strip()
+    negative = False
+    if s.startswith('(') and s.endswith(')'):
+        negative = True
+        s = s[1:-1]
+    if '-' in s:
+        negative = True
+    s = s.replace('$', '').replace(',', '').replace('-', '').replace(' ', '')
+    try:
+        val = float(s)
+        return -val if negative else val
+    except ValueError:
+        return 0.0
+
+
+def _extract_address(text: str) -> Optional[str]:
+    """Try to extract a business address from the statement header."""
+    patterns = [
+        r'(?:Address|Mailing)[:\s]*([\w\s]+\n[\w\s,]+\s+\d{5}(?:-\d{4})?)',
+        r'(\d+\s+[\w\s]+(?:St|Ave|Blvd|Rd|Dr|Ln|Way|Ct|Pl)\.?[,\s]+[\w\s]+,?\s*[A-Z]{2}\s+\d{5})',
+    ]
+    for pat in patterns:
+        match = re.search(pat, text)
+        if match:
+            addr = match.group(1).strip()
+            addr = re.sub(r'\s+', ' ', addr)
+            return addr
+    return None
+
+
+def _infer_transaction_signs(transactions: list, opening_balance: float, text: str) -> list:
+    """If amounts lack sign info, try to infer from descriptions and balance."""
+    deposit_indicators = [
+        "DEPOSIT", "CREDIT", "WIRE IN", "ACH CREDIT", "DIRECT DEP",
+        "MOBILE DEP", "INTEREST EARNED", "REFUND",
+    ]
+    withdrawal_indicators = [
+        "DEBIT", "WITHDRAWAL", "CHECK", "FEE", "CHARGE",
+        "WIRE OUT", "ACH DEBIT", "PAYMENT", "PURCHASE",
+    ]
+
+    all_positive = all(t["amount"] >= 0 for t in transactions if t["amount"] != 0)
+    if not all_positive:
+        return transactions
+
+    for txn in transactions:
+        desc_upper = txn["description"].upper()
+        is_deposit = any(ind in desc_upper for ind in deposit_indicators)
+        is_withdrawal = any(ind in desc_upper for ind in withdrawal_indicators)
+
+        if is_withdrawal and not is_deposit and txn["amount"] > 0:
+            txn["amount"] = -txn["amount"]
+
+    return transactions
+
+
+def _assign_running_balances(transactions: list, opening_balance: float) -> list:
+    """Fill in running balances where missing."""
+    has_balances = any(t.get("running_balance") is not None for t in transactions)
+    if has_balances:
+        return transactions
+
+    if opening_balance == 0.0:
+        return transactions
+
+    running = opening_balance
+    for txn in transactions:
+        running += txn["amount"]
+        txn["running_balance"] = round(running, 2)
+    return transactions
+
+
 def extract_text_from_pdf(pdf_path: str) -> Tuple[str, List[List]]:
     """
     Extract raw text and table data from a PDF bank statement using pdfplumber.
@@ -67,6 +183,69 @@ def extract_text_from_pdf(pdf_path: str) -> Tuple[str, List[List]]:
         return "", []
     
     return '\n'.join(full_text), all_tables
+
+
+def extract_text_ocr(pdf_path: str) -> str:
+    """Extract text using pytesseract OCR (for scanned/image-based PDFs)."""
+    if not OCR_AVAILABLE:
+        return ""
+    try:
+        images = convert_from_path(pdf_path, dpi=300)
+        text_parts = []
+        for image in images:
+            page_text = pytesseract.image_to_string(image)
+            if page_text:
+                text_parts.append(page_text)
+        return "\n".join(text_parts)
+    except Exception:
+        return ""
+
+
+def check_pdf_metadata(pdf) -> list:
+    """Check PDF creator/producer fields for editing software."""
+    flags = []
+    metadata = pdf.metadata or {}
+    fraud_tools = ["PHOTOSHOP", "ADOBE PHOTOSHOP", "CANVA", "GIMP", "PIXLR",
+                   "ILLUSTRATOR", "INKSCAPE", "AFFINITY"]
+
+    creator = str(metadata.get("Creator", "")).upper()
+    producer = str(metadata.get("Producer", "")).upper()
+
+    for tool in fraud_tools:
+        if tool in creator:
+            flags.append(f"FRAUD WARNING: PDF Creator field contains '{tool}' — possible statement manipulation")
+        if tool in producer:
+            flags.append(f"FRAUD WARNING: PDF Producer field contains '{tool}' — possible statement manipulation")
+
+    mod_date = metadata.get("ModDate", "")
+    create_date = metadata.get("CreationDate", "")
+    if mod_date and create_date and mod_date != create_date:
+        flags.append(f"NOTICE: PDF was modified after creation (Created: {create_date}, Modified: {mod_date})")
+
+    return flags
+
+
+def validate_extraction(transactions: list, opening_bal: float, closing_bal: float) -> list:
+    """Validate extracted transactions against opening/closing balances."""
+    errors = []
+    if not transactions:
+        errors.append("No transactions extracted")
+        return errors
+
+    if opening_bal == 0.0 and closing_bal == 0.0:
+        return errors
+
+    total_amount = sum(t.get("amount", 0) for t in transactions)
+    expected_closing = opening_bal + total_amount
+
+    if closing_bal > 0 and abs(expected_closing - closing_bal) > 1.00:
+        errors.append(
+            f"Balance validation warning: Opening({opening_bal:.2f}) + "
+            f"Transactions({total_amount:.2f}) = {expected_closing:.2f}, "
+            f"but Closing = {closing_bal:.2f} (diff: {abs(expected_closing - closing_bal):.2f})"
+        )
+
+    return errors
 
 
 def detect_bank_format(text: str) -> str:
@@ -807,33 +986,106 @@ def calculate_summary_stats(transactions: List[Dict]) -> Dict:
     }
 
 
+def _normalize_transactions(transactions: List[Dict]) -> List[Dict]:
+    """Convert bank-parser transaction format to normalized format with amount/running_balance."""
+    for txn in transactions:
+        if 'amount' in txn and 'debit' in txn and 'credit' in txn:
+            credit = txn.get('credit', 0) or 0
+            debit = txn.get('debit', 0) or 0
+            if credit > 0:
+                txn['amount'] = credit
+            elif debit > 0:
+                txn['amount'] = -debit
+        if 'running_balance' not in txn:
+            txn['running_balance'] = txn.get('balance', None)
+    return transactions
+
+
 def process_bank_statement(pdf_path: str) -> Dict:
     """
     Main function to process a complete bank statement.
     Returns complete parsed data including account info and transactions.
     """
+    warnings = []
+    errors = []
+    fraud_flags = []
+    extraction_method = "pdfplumber"
+
     if not os.path.exists(pdf_path):
         return {
             'error': f'File not found: {pdf_path}',
             'success': False
         }
-    
-    raw_text, tables = extract_text_from_pdf(pdf_path)
-    
-    if not raw_text:
-        return {
-            'error': 'Could not extract text from PDF',
-            'success': False
-        }
-    
+
+    raw_text = ""
+    tables = []
+
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            fraud_flags = check_pdf_metadata(pdf)
+
+            text_parts = []
+            for page in pdf.pages:
+                text = page.extract_text()
+                if text:
+                    text_parts.append(text)
+
+                page_tables = page.extract_tables()
+                for table in page_tables:
+                    if table:
+                        tables.extend([row for row in table if row])
+                        for row in table:
+                            if row:
+                                row_text = ' | '.join([str(cell) if cell else '' for cell in row])
+                                text_parts.append(row_text)
+
+            raw_text = '\n'.join(text_parts)
+    except Exception as e:
+        errors.append(f"PDF extraction error: {str(e)}")
+
+    if not raw_text or len(raw_text.strip()) < 100:
+        warnings.append("pdfplumber found no text, falling back to OCR")
+        ocr_text = extract_text_ocr(pdf_path)
+        if ocr_text and len(ocr_text.strip()) > 100:
+            raw_text = ocr_text
+            extraction_method = "pytesseract_ocr"
+        else:
+            error_msg = (
+                "Both pdfplumber and OCR failed to extract text"
+                if OCR_AVAILABLE else
+                "No text extracted (pytesseract not installed for OCR fallback)"
+            )
+            errors.append(error_msg)
+            return {
+                'success': False,
+                'error': error_msg,
+                'fraud_flags': fraud_flags,
+                'warnings': warnings,
+                'errors': errors,
+            }
+
     bank_format = detect_bank_format(raw_text)
-    
+
     transactions = parse_transactions(raw_text, bank_format, tables)
-    
+
+    transactions = _normalize_transactions(transactions)
+
     account_info = extract_account_info(raw_text, bank_format)
-    
+
+    opening_balance = account_info.get('opening_balance') or 0.0
+    closing_balance = account_info.get('closing_balance') or 0.0
+
+    transactions = _infer_transaction_signs(transactions, opening_balance, raw_text)
+
+    transactions = _assign_running_balances(transactions, opening_balance)
+
+    address_extracted = _extract_address(raw_text)
+
     summary_stats = calculate_summary_stats(transactions)
-    
+
+    validation_errors = validate_extraction(transactions, opening_balance, closing_balance)
+    errors.extend(validation_errors)
+
     return {
         'success': True,
         'filename': os.path.basename(pdf_path),
@@ -843,4 +1095,11 @@ def process_bank_statement(pdf_path: str) -> Dict:
         'summary': summary_stats,
         'raw_text_length': len(raw_text),
         'page_count': raw_text.count('\f') + 1 if '\f' in raw_text else 1,
+        'fraud_flags': fraud_flags,
+        'address_extracted': address_extracted,
+        'extraction_method': extraction_method,
+        'warnings': warnings,
+        'errors': errors,
+        'opening_balance': opening_balance,
+        'closing_balance': closing_balance,
     }

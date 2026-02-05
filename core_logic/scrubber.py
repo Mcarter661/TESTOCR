@@ -2,6 +2,10 @@
 Scrubber Module
 Cleans transaction data, identifies transfers, calculates revenue metrics,
 and performs concentration analysis.
+
+Supports two modes:
+- Inline pattern mode (backward compatible): Uses regex patterns for classification
+- Keyword mode: Uses config/keywords.json for keyword-based classification
 """
 
 import pandas as pd
@@ -111,6 +115,53 @@ def identify_internal_transfers(transactions: List[Dict]) -> Tuple[List[Dict], L
             revenue_transactions.append(txn_copy)
     
     return revenue_transactions, transfer_transactions
+
+
+def identify_internal_transfers_keyword(transactions: List[Dict], keywords: Dict) -> Tuple[List[Dict], List[Dict], List[Dict]]:
+    """
+    Separate internal transfers from actual revenue transactions using keyword-based classification.
+    Returns (revenue_transactions, transfer_transactions, excluded_deposits_with_reasons).
+    """
+    revenue_transactions = []
+    transfer_transactions = []
+    excluded_deposits = []
+
+    for txn in transactions:
+        txn_copy = txn.copy()
+        credit = txn_copy.get('credit', 0)
+
+        if credit > 0:
+            exclusion_reason = _classify_deposit(txn_copy, keywords)
+            if exclusion_reason:
+                txn_copy['transfer_type'] = exclusion_reason.split('(')[0].strip().lower().replace(' ', '_')
+                transfer_transactions.append(txn_copy)
+                excluded_deposits.append({
+                    'date': txn_copy.get('date', ''),
+                    'description': txn_copy.get('description', ''),
+                    'amount': credit,
+                    'reason': exclusion_reason,
+                })
+                continue
+
+        description = txn_copy.get('description', '').lower()
+        is_transfer = matches_patterns(description, TRANSFER_PATTERNS)
+        is_loan = matches_patterns(description, LOAN_DEPOSIT_PATTERNS)
+        is_owner_draw = matches_patterns(description, OWNER_DRAW_PATTERNS)
+
+        if is_transfer:
+            txn_copy['transfer_type'] = 'internal_transfer'
+            transfer_transactions.append(txn_copy)
+        elif is_loan:
+            txn_copy['transfer_type'] = 'loan_deposit'
+            transfer_transactions.append(txn_copy)
+        elif is_owner_draw:
+            txn_copy['transfer_type'] = 'owner_draw'
+            transfer_transactions.append(txn_copy)
+        else:
+            txn_copy['transfer_type'] = None
+            revenue_transactions.append(txn_copy)
+
+    return revenue_transactions, transfer_transactions, excluded_deposits
 
 
 def categorize_transaction(description: str) -> str:
@@ -375,10 +426,250 @@ def fix_debit_credit_from_description(transactions: List[Dict]) -> List[Dict]:
     return fixed
 
 
-def scrub_transactions(transactions: List[Dict]) -> Dict:
+# ── Engine functions: keyword-based classification & analysis ─────────
+
+
+def scrub_statement(transactions: list, keywords: dict) -> dict:
+    """
+    Keyword-based deposit classification entry point.
+    Classify every deposit as revenue or excluded using keywords dict.
+    Returns monthly breakdowns of gross vs net revenue.
+    """
+    excluded = []
+    clean = []
+
+    for txn in transactions:
+        amount = txn.get("amount", txn.get("credit", 0))
+        if amount <= 0:
+            clean.append(txn)
+            continue
+
+        exclusion_reason = _classify_deposit(txn, keywords)
+        if exclusion_reason:
+            excluded.append({
+                "date": txn.get("date", ""),
+                "description": txn.get("description", ""),
+                "amount": amount,
+                "reason": exclusion_reason,
+            })
+        else:
+            clean.append(txn)
+
+    monthly_gross = defaultdict(float)
+    monthly_net = defaultdict(float)
+    monthly_deposit_count = defaultdict(int)
+
+    for txn in transactions:
+        amount = txn.get("amount", txn.get("credit", 0))
+        if amount <= 0:
+            continue
+        month_key = _month_key(txn.get("date", ""))
+        if not month_key:
+            continue
+        monthly_gross[month_key] += amount
+        monthly_deposit_count[month_key] += 1
+
+    for txn in clean:
+        amount = txn.get("amount", txn.get("credit", 0))
+        if amount <= 0:
+            continue
+        month_key = _month_key(txn.get("date", ""))
+        if not month_key:
+            continue
+        monthly_net[month_key] += amount
+
+    total_gross = sum(monthly_gross.values())
+    total_net = sum(monthly_net.values())
+    num_months = max(len(monthly_net), 1)
+    avg_monthly_net = total_net / num_months
+
+    mg = {k: round(v, 2) for k, v in sorted(monthly_gross.items())}
+    mn = {k: round(v, 2) for k, v in sorted(monthly_net.items())}
+    mc = dict(sorted(monthly_deposit_count.items()))
+
+    return {
+        "monthly_gross": mg,
+        "monthly_net": mn,
+        "monthly_deposit_count": mc,
+        "total_gross": round(total_gross, 2),
+        "total_net": round(total_net, 2),
+        "avg_monthly_net": round(avg_monthly_net, 2),
+        "excluded_transactions": excluded,
+        "clean_transactions": clean,
+    }
+
+
+def detect_inter_account_transfers(statements: list) -> list:
+    """
+    Apex Test: Find matching deposit/withdrawal amounts within +/- 1 day across statements.
+    Each element in `statements` is a list of transactions from a different account.
+    Returns list of inter-account transfer matches.
+    """
+    if len(statements) < 2:
+        return []
+
+    transfers = []
+
+    for i in range(len(statements)):
+        deposits_i = [t for t in statements[i] if t.get("amount", t.get("credit", 0)) > 0]
+        for j in range(len(statements)):
+            if i == j:
+                continue
+            withdrawals_j = [t for t in statements[j] if t.get("amount", t.get("debit", 0)) < 0 or t.get("debit", 0) > 0]
+
+            for dep in deposits_i:
+                dep_date = dep.get("date", "")
+                dep_amt = abs(dep.get("amount", dep.get("credit", 0)))
+                for wth in withdrawals_j:
+                    wth_date = wth.get("date", "")
+                    wth_amt = abs(wth.get("amount", wth.get("debit", 0)))
+                    if abs(dep_amt - wth_amt) < 0.01 and _dates_within_days(dep_date, wth_date, 1):
+                        transfers.append({
+                            "deposit_account": i,
+                            "withdrawal_account": j,
+                            "amount": dep_amt,
+                            "deposit_date": dep_date,
+                            "withdrawal_date": wth_date,
+                            "deposit_description": dep.get("description", ""),
+                            "withdrawal_description": wth.get("description", ""),
+                        })
+
+    return transfers
+
+
+def analyze_concentration(clean_transactions: list, total_net: float) -> dict:
+    """
+    Analyze deposit source concentration risk.
+    Returns top depositors and whether concentration risk is triggered (>30% from single source).
+    """
+    if total_net <= 0:
+        return {
+            "top_depositors": [],
+            "concentration_risk": False,
+        }
+
+    source_totals = defaultdict(float)
+    for txn in clean_transactions:
+        amount = txn.get("amount", txn.get("credit", 0))
+        if amount <= 0:
+            continue
+        desc = _normalize_description(txn.get("description", "UNKNOWN"))
+        source_totals[desc] += amount
+
+    sorted_sources = sorted(source_totals.items(), key=lambda x: x[1], reverse=True)
+    top_depositors = []
+    for name, amount in sorted_sources[:10]:
+        pct = (amount / total_net) * 100 if total_net > 0 else 0
+        top_depositors.append({
+            "name": name,
+            "amount": round(amount, 2),
+            "percent": round(pct, 2),
+        })
+
+    concentration_risk = False
+    if top_depositors and top_depositors[0]["percent"] > 30:
+        concentration_risk = True
+
+    return {
+        "top_depositors": top_depositors,
+        "concentration_risk": concentration_risk,
+    }
+
+
+# ── Private helpers ───────────────────────────────────────────────────
+
+
+def _classify_deposit(txn: dict, keywords: dict) -> str:
+    """Check if a deposit should be excluded from revenue using keywords. Returns reason or empty string."""
+    desc = txn.get("description", "").upper()
+    amount = txn.get("amount", txn.get("credit", 0))
+
+    for kw in keywords.get("internal_transfer_keywords", []):
+        if kw.upper() in desc:
+            return f"Internal transfer ({kw})"
+
+    for kw in keywords.get("loan_proceed_keywords", []):
+        if kw.upper() in desc:
+            return f"Loan/MCA proceeds ({kw})"
+
+    all_lender_tiers = [
+        "mca_lenders_tier1_major", "mca_lenders_tier2_growing",
+        "mca_lenders_tier3_fintech", "mca_lenders_tier4_regional",
+    ]
+    for tier_key in all_lender_tiers:
+        tier = keywords.get(tier_key, {})
+        for lender_name, aliases in tier.items():
+            for alias in aliases:
+                if alias.upper() in desc:
+                    if amount >= 5000:
+                        return f"Suspected MCA funding deposit from {lender_name}"
+                    break
+
+    if amount >= 10000:
+        round_check = amount % 1000
+        if round_check == 0:
+            generic_kws = keywords.get("generic_mca_keywords", [])
+            for kw in generic_kws:
+                if kw.upper() in desc:
+                    return f"Large round-sum suspected loan deposit ({kw})"
+
+    for kw in keywords.get("owner_deposit_keywords", []):
+        if kw.upper() in desc:
+            return f"Owner/shareholder deposit ({kw})"
+
+    for kw in keywords.get("exclude_from_revenue", []):
+        if kw.upper() in desc:
+            return f"Non-revenue item ({kw})"
+
+    return ""
+
+
+def _month_key(date_str: str) -> str:
+    """Convert YYYY-MM-DD to YYYY-MM key."""
+    if not date_str or len(str(date_str)) < 7:
+        return ""
+    return str(date_str)[:7]
+
+
+def _dates_within_days(date1: str, date2: str, max_days: int) -> bool:
+    """Check if two YYYY-MM-DD date strings are within max_days of each other."""
+    try:
+        d1 = datetime.strptime(str(date1), "%Y-%m-%d")
+        d2 = datetime.strptime(str(date2), "%Y-%m-%d")
+        return abs((d1 - d2).days) <= max_days
+    except (ValueError, TypeError):
+        return False
+
+
+def _normalize_description(desc: str) -> str:
+    """Normalize a transaction description for grouping deposit sources."""
+    desc = desc.upper().strip()
+    desc = re.sub(r'\d{4,}', 'XXXX', desc)
+    desc = re.sub(r'\s+', ' ', desc)
+    prefixes_to_strip = [
+        "ACH CREDIT ", "ACH DEPOSIT ", "WIRE TRANSFER ", "DIRECT DEP ",
+        "ONLINE PAYMENT ", "MOBILE DEPOSIT ",
+    ]
+    for prefix in prefixes_to_strip:
+        if desc.startswith(prefix):
+            desc = desc[len(prefix):]
+            break
+    return desc.strip()[:50]
+
+
+# ── Main entry point ──────────────────────────────────────────────────
+
+
+def scrub_transactions(transactions: List[Dict], keywords: Optional[Dict] = None) -> Dict:
     """
     Main function to clean and analyze transactions.
     Returns scrubbed data with revenue metrics and categorized transactions.
+
+    Args:
+        transactions: List of transaction dicts with date, description, credit, debit fields.
+        keywords: Optional keywords dict from config/keywords.json. When provided,
+                  uses keyword-based classification for better accuracy. When None,
+                  falls back to inline regex patterns (backward compatible).
     """
     if not transactions:
         return {
@@ -390,11 +681,18 @@ def scrub_transactions(transactions: List[Dict]) -> Dict:
             'daily_balances': pd.DataFrame(),
             'concentration': {'top_depositors': [], 'concentration_ratio': 0, 'unique_sources': 0},
             'seasonality': {'is_seasonal': False, 'trend': 'insufficient_data', 'volatility': 0},
+            'concentration_analysis': {'top_depositors': [], 'concentration_risk': False},
+            'excluded_transactions': [],
         }
     
     fixed_transactions = fix_debit_credit_from_description(transactions)
-    
-    revenue_txns, transfers = identify_internal_transfers(fixed_transactions)
+
+    excluded_deposits = []
+
+    if keywords:
+        revenue_txns, transfers, excluded_deposits = identify_internal_transfers_keyword(fixed_transactions, keywords)
+    else:
+        revenue_txns, transfers = identify_internal_transfers(fixed_transactions)
     
     categorized = rename_descriptions(revenue_txns)
     
@@ -407,6 +705,14 @@ def scrub_transactions(transactions: List[Dict]) -> Dict:
     concentration = analyze_deposit_concentration(categorized)
     
     seasonality = detect_seasonality(monthly_data)
+
+    total_net_deposits = sum(t.get('credit', 0) for t in categorized)
+    concentration_analysis = analyze_concentration(categorized, total_net_deposits)
+
+    if keywords:
+        statement_results = scrub_statement(fixed_transactions, keywords)
+        if not excluded_deposits:
+            excluded_deposits = statement_results.get('excluded_transactions', [])
     
     return {
         'cleaned_transactions': categorized,
@@ -419,4 +725,6 @@ def scrub_transactions(transactions: List[Dict]) -> Dict:
         'seasonality': seasonality,
         'transfer_count': len(transfers),
         'revenue_transaction_count': len(categorized),
+        'concentration_analysis': concentration_analysis,
+        'excluded_transactions': excluded_deposits,
     }
