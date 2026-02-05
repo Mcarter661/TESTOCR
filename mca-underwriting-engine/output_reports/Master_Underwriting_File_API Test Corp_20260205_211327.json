@@ -1,0 +1,114 @@
+{
+  "generated_at": "2026-02-05T21:13:27.237824",
+  "merchant_name": "API Test Corp",
+  "scrub_analysis": {
+    "total_net": 295000.0,
+    "monthly_net": {
+      "2024-10": 95000.0,
+      "2024-11": 98000.0,
+      "2024-12": 102000.0
+    },
+    "monthly_gross": {
+      "2024-10": 100000.0,
+      "2024-11": 105000.0,
+      "2024-12": 110000.0
+    },
+    "clean_transactions": [],
+    "removed_transactions": [],
+    "total_gross": 315000.0,
+    "nsf_count": 0,
+    "negative_days": 0
+  },
+  "risk_analysis": {
+    "risk_score": 0,
+    "risk_tier": "A",
+    "red_flags": [],
+    "cash_risk_flag": false,
+    "gambling_flag": false
+  },
+  "position_analysis": {
+    "total_positions": 1,
+    "positions": [
+      {
+        "position_number": 1,
+        "lender_name": "OnDeck",
+        "funded_amount": 25000.0,
+        "payment_amount": 250.0,
+        "payment_frequency": "daily",
+        "estimated_original_funding": 25000.0,
+        "estimated_factor_rate": 1.3,
+        "estimated_total_payback": 32500.0,
+        "estimated_remaining_balance": 0,
+        "paid_in_percent": 318.95384615384614,
+        "estimated_payoff_date": ""
+      }
+    ],
+    "total_daily_holdback": 250.0,
+    "total_monthly_holdback": 5375.0
+  },
+  "calculations": {
+    "merchant_name": "API Test Corp",
+    "avg_monthly_revenue": 98333.33333333333,
+    "fico_score": 700,
+    "time_in_business_months": 48,
+    "state": "NY",
+    "industry": "Tech",
+    "total_positions": 1,
+    "current_holdback_percent": 5.466101694915255,
+    "total_nsf_count": 0,
+    "total_negative_days": 0,
+    "proposed_funding": 40000.0,
+    "proposed_factor_rate": 1.3,
+    "proposed_term_months": 6,
+    "proposed_frequency": "daily",
+    "combined_holdback_percent": 14.279661016949152,
+    "ownership_percent": 100.0,
+    "max_recommended_funding": 0
+  },
+  "lender_matching": {
+    "eligible_lenders": [],
+    "disqualified_lenders": [
+      {
+        "lender_name": "Kalamata Prime",
+        "reasons": [
+          "Monthly revenue $0 below minimum $50,000",
+          "Days since last funding 0 below minimum 90",
+          "Avg ledger balance $0 below minimum $5,000"
+        ]
+      },
+      {
+        "lender_name": "Kalamata Select",
+        "reasons": [
+          "Monthly revenue $0 below minimum $20,000",
+          "Days since last funding 0 below minimum 30",
+          "Avg ledger balance $0 below minimum $3,000"
+        ]
+      },
+      {
+        "lender_name": "Credibly Prime+",
+        "reasons": [
+          "Monthly revenue $0 below minimum $25,000",
+          "Avg ledger balance $0 below minimum $3,000"
+        ]
+      },
+      {
+        "lender_name": "Fintap A-Paper",
+        "reasons": [
+          "FICO 700 below minimum 720",
+          "Monthly revenue $0 below minimum $20,000",
+          "Avg ledger balance $0 below minimum $5,000"
+        ]
+      },
+      {
+        "lender_name": "IOU Core",
+        "reasons": [
+          "Monthly revenue $0 below minimum $35,000",
+          "Avg ledger balance $0 below minimum $3,000"
+        ]
+      }
+    ],
+    "total_lenders_checked": 5,
+    "eligible_count": 0,
+    "disqualified_count": 5
+  }
+}
