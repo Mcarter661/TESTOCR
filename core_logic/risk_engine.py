@@ -370,7 +370,7 @@ def calculate_risk_score(
     }
 
 
-def generate_risk_profile(transactions: List[Dict], daily_balances: pd.DataFrame = None) -> Dict:
+def generate_risk_profile(transactions: List[Dict], daily_balances: Optional[pd.DataFrame] = None) -> Dict:
     """
     Generate comprehensive risk profile for the applicant.
     """

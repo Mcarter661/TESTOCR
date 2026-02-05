@@ -413,7 +413,7 @@ def generate_json_output(full_data: Dict, output_path: str) -> None:
 def generate_master_report(
     summary_data: Dict,
     transactions: List[Dict],
-    monthly_data: pd.DataFrame,
+    monthly_data: Optional[pd.DataFrame],
     risk_profile: Dict,
     lender_matches: List[Dict],
     output_dir: str = "output_reports"
