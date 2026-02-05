@@ -57,32 +57,72 @@ ATM_PATTERNS = [
 ]
 
 MCA_LENDER_PATTERNS = [
-    r'capify',
-    r'credibly',
-    r'ondeck',
-    r'on\s*deck',
-    r'kabbage',
-    r'fundbox',
-    r'bluevine',
-    r'lendio',
-    r'rapid\s*advance',
-    r'swift\s*capital',
-    r'merchant\s*cash',
-    r'daily\s*ach',
-    r'world\s*business',
-    r'can\s*capital',
-    r'national\s*funding',
-    r'forward\s*financing',
-    r'fora\s*financial',
-    r'expansion\s*capital',
-    r'clear\s*balance',
-    r'slice\s*capital',
-    r'everest\s*business',
-    r'reliant\s*funding',
-    r'yellowstone',
-    r'bizfi',
-    r'newtek',
+    r'capify', r'credibly', r'ondeck', r'on\s*deck', r'kabbage', r'fundbox',
+    r'bluevine', r'lendio', r'rapid\s*advance', r'swift\s*capital',
+    r'merchant\s*cash', r'daily\s*ach', r'world\s*business', r'can\s*capital',
+    r'national\s*funding', r'forward\s*financing', r'fora\s*financial',
+    r'expansion\s*capital', r'clear\s*balance', r'slice\s*capital',
+    r'everest\s*business', r'reliant\s*funding', r'yellowstone', r'bizfi', r'newtek',
+    r'efinancialtree', r'e\s*financial\s*tree', r'capybara', r'ivy\s*receivables',
+    r'rauch.*milliken', r'doordash\s*capital', r'sl\s*recovery', r'slrecovery',
+    r'spoton', r'spot\s*on', r'libertas', r'clearview', r'quickbridge',
+    r'fox\s*capital', r'rapid\s*finance', r'payability', r'behalf',
+    r'square\s*capital', r'shopify\s*capital', r'amazon\s*lending', r'paypal\s*working',
+    r'stripe\s*capital', r'brex', r'divvy', r'clearco', r'pipe',
 ]
+
+MCA_ACH_IDENTIFIERS = {
+    '9144978400': 'eFinancialTree',
+    '5612081085': 'CAPYBARA',
+    '7183166893': 'Ivy Receivables/Fox',
+    'D002': 'Rauch-Milliken',
+    'doordash': 'DoorDash Capital',
+    'slrecovery': 'SL Recovery',
+    'minpmt': 'SpotOn',
+    'libertas': 'Libertas Funding',
+    'clearview': 'Clearview Funding',
+    'quickbridge': 'Quick Bridge',
+    'credibly': 'Credibly',
+    'ondeck': 'OnDeck',
+    'kabbage': 'Kabbage',
+    'fundbox': 'Fundbox',
+    'bluevine': 'BlueVine',
+    'payability': 'Payability',
+    'behalf': 'Behalf',
+}
+
+FUNDING_PATTERNS = [
+    r'wire\s*(transfer|in|credit)',
+    r'incoming\s*wire',
+    r'fed\s*wire',
+    r'ach\s*credit',
+    r'external\s*deposit',
+    r'same\s*day\s*credit',
+]
+
+REVENUE_SOURCE_PATTERNS = {
+    'shift4': {'pattern': r'shift4|harbortouch', 'type': 'cc_processing'},
+    'spoton_revenue': {'pattern': r'spoton.*deposit|spoton.*settlement', 'type': 'cc_processing'},
+    'square': {'pattern': r'square.*deposit|sq\s*\*', 'type': 'cc_processing'},
+    'stripe': {'pattern': r'stripe', 'type': 'cc_processing'},
+    'clover': {'pattern': r'clover', 'type': 'cc_processing'},
+    'toast': {'pattern': r'toast', 'type': 'cc_processing'},
+    'doordash_revenue': {'pattern': r'doordash(?!.*capital).*deposit|dd\s*doordash', 'type': 'delivery'},
+    'grubhub': {'pattern': r'grubhub|seamless', 'type': 'delivery'},
+    'ubereats': {'pattern': r'uber\s*eats|ubereats', 'type': 'delivery'},
+    'postmates': {'pattern': r'postmates', 'type': 'delivery'},
+    'counter_deposit': {'pattern': r'counter\s*deposit|branch\s*deposit|cash\s*deposit', 'type': 'cash'},
+}
+
+RECURRING_EXPENSE_PATTERNS = {
+    'adp_payroll': {'pattern': r'adp|paychex|gusto', 'type': 'payroll'},
+    'cheney_brothers': {'pattern': r'cheney\s*brothers?|sysco|us\s*foods', 'type': 'food_supplier'},
+    'paper_supplier': {'pattern': r'paper|janitorial|cleaning\s*supply', 'type': 'supplies'},
+    'electric': {'pattern': r'fpl|florida\s*power|duke\s*energy|pge|electric', 'type': 'utilities'},
+    'comcast': {'pattern': r'comcast|spectrum|att|verizon|tmobile', 'type': 'telecom'},
+    'rent': {'pattern': r'rent|lease\s*payment|landlord', 'type': 'rent'},
+    'insurance': {'pattern': r'insurance|geico|progressive|state\s*farm', 'type': 'insurance'},
+}
 
 
 def matches_patterns(text: str, patterns: List[str]) -> bool:
@@ -205,52 +245,482 @@ def detect_gambling_activity(transactions: List[Dict]) -> Dict:
     }
 
 
-def detect_existing_mca_payments(transactions: List[Dict]) -> List[Dict]:
+def identify_mca_lender(description: str) -> Optional[str]:
     """
-    Detect existing MCA/loan payments in transaction history.
+    Identify MCA lender from transaction description or ACH identifier.
+    """
+    desc_lower = description.lower()
+    
+    for ach_id, lender_name in MCA_ACH_IDENTIFIERS.items():
+        if ach_id.lower() in desc_lower:
+            return lender_name
+    
+    for pattern in MCA_LENDER_PATTERNS:
+        if re.search(pattern, desc_lower):
+            match = re.search(pattern, desc_lower)
+            if match:
+                return match.group(0).title()
+    
+    return None
+
+
+def detect_payment_frequency(dates: List[str]) -> str:
+    """
+    Determine payment frequency from list of payment dates.
+    """
+    if len(dates) < 2:
+        return 'unknown'
+    
+    try:
+        date_objs = sorted([datetime.strptime(d, '%Y-%m-%d') if isinstance(d, str) else d for d in dates])
+        gaps = [(date_objs[i+1] - date_objs[i]).days for i in range(len(date_objs)-1)]
+        avg_gap = sum(gaps) / len(gaps) if gaps else 0
+        
+        if avg_gap <= 2:
+            return 'daily'
+        elif avg_gap <= 8:
+            return 'weekly'
+        elif avg_gap <= 16:
+            return 'bi-weekly'
+        elif avg_gap <= 35:
+            return 'monthly'
+        else:
+            return 'irregular'
+    except:
+        return 'unknown'
+
+
+def reverse_engineer_mca_position(payments: List[Dict], frequency: str) -> Dict:
+    """
+    Reverse engineer MCA position details from payment history.
+    """
+    if not payments:
+        return {}
+    
+    amounts = [p['amount'] for p in payments]
+    avg_payment = sum(amounts) / len(amounts)
+    
+    frequency_multipliers = {
+        'daily': 22,
+        'weekly': 4.33,
+        'bi-weekly': 2.17,
+        'monthly': 1,
+    }
+    
+    multiplier = frequency_multipliers.get(frequency, 4)
+    monthly_cost = avg_payment * multiplier
+    
+    est_factor = 1.35
+    est_term_months = 6
+    est_funding = (monthly_cost * est_term_months) / est_factor
+    
+    payments_made = len(payments)
+    if frequency == 'daily':
+        months_paid = payments_made / 22
+    elif frequency == 'weekly':
+        months_paid = payments_made / 4.33
+    elif frequency == 'bi-weekly':
+        months_paid = payments_made / 2.17
+    else:
+        months_paid = payments_made
+    
+    pct_paid = min(months_paid / est_term_months, 0.9)
+    est_remaining = est_funding * (1 - pct_paid) * est_factor
+    
+    return {
+        'avg_payment': round(avg_payment, 2),
+        'monthly_cost': round(monthly_cost, 2),
+        'est_funding': round(est_funding, 2),
+        'est_remaining': round(est_remaining, 2),
+        'payments_made': payments_made,
+        'frequency': frequency,
+    }
+
+
+def track_payment_changes(lender_payments: Dict[str, List[Dict]]) -> Dict:
+    """
+    Track payment changes over time for each lender.
+    """
+    changes = {}
+    
+    for lender, payments in lender_payments.items():
+        if len(payments) < 2:
+            continue
+        
+        sorted_payments = sorted(payments, key=lambda x: x.get('date', ''))
+        
+        first_half = sorted_payments[:len(sorted_payments)//2]
+        second_half = sorted_payments[len(sorted_payments)//2:]
+        
+        if first_half and second_half:
+            first_avg = sum(p['amount'] for p in first_half) / len(first_half)
+            second_avg = sum(p['amount'] for p in second_half) / len(second_half)
+            
+            if first_avg > 0:
+                pct_change = ((second_avg - first_avg) / first_avg) * 100
+            else:
+                pct_change = 0
+            
+            last_payment_date = sorted_payments[-1].get('date', '')
+            
+            try:
+                last_date = datetime.strptime(last_payment_date, '%Y-%m-%d') if isinstance(last_payment_date, str) else last_payment_date
+                days_since_last = (datetime.now() - last_date).days if last_date else 999
+            except:
+                days_since_last = 999
+            
+            if days_since_last > 30:
+                status = 'STOPPED'
+            elif pct_change < -30:
+                status = 'REDUCED'
+            elif pct_change > 30:
+                status = 'INCREASED'
+            else:
+                status = 'ACTIVE'
+            
+            changes[lender] = {
+                'first_avg': round(first_avg, 2),
+                'second_avg': round(second_avg, 2),
+                'pct_change': round(pct_change, 1),
+                'status': status,
+                'last_payment': last_payment_date,
+                'days_since_last': days_since_last,
+            }
+    
+    return changes
+
+
+def detect_existing_mca_payments(transactions: List[Dict]) -> Dict:
+    """
+    Enhanced MCA detection with reverse engineering and payment tracking.
     """
     mca_payments = []
-    payment_patterns = defaultdict(list)
+    lender_payments = defaultdict(list)
     
     for txn in transactions:
-        description = txn.get('description', '').lower()
+        description = txn.get('description', '')
+        desc_lower = description.lower()
         debit = txn.get('debit', 0)
         
         if debit <= 0:
             continue
         
-        if matches_patterns(description, MCA_LENDER_PATTERNS):
-            mca_payments.append({
+        lender = identify_mca_lender(description)
+        
+        if lender:
+            payment = {
                 'date': txn.get('date'),
-                'description': description[:50],
+                'description': description[:100],
                 'amount': debit,
-                'lender_match': 'known_mca'
-            })
-            payment_patterns[description[:20]].append(debit)
+                'lender': lender,
+                'match_type': 'confirmed'
+            }
+            mca_payments.append(payment)
+            lender_payments[lender].append(payment)
             continue
         
-        if re.search(r'ach\s*debit|daily\s*payment|weekly\s*payment', description):
-            if 100 <= debit <= 5000:
-                mca_payments.append({
-                    'date': txn.get('date'),
-                    'description': description[:50],
-                    'amount': debit,
-                    'lender_match': 'suspected_mca'
-                })
-                payment_patterns[description[:20]].append(debit)
+        if re.search(r'ach\s*debit|ach\s*withdrawal|ach\s*pmt', desc_lower):
+            if 100 <= debit <= 2000:
+                numbers = re.findall(r'\d{8,12}', description)
+                if numbers:
+                    ach_id = numbers[0]
+                    suspected_lender = f"ACH-{ach_id[:8]}"
+                    payment = {
+                        'date': txn.get('date'),
+                        'description': description[:100],
+                        'amount': debit,
+                        'lender': suspected_lender,
+                        'ach_id': ach_id,
+                        'match_type': 'suspected'
+                    }
+                    mca_payments.append(payment)
+                    lender_payments[suspected_lender].append(payment)
     
-    total_mca = sum(p['amount'] for p in mca_payments)
-    unique_lenders = len(set(p['description'][:20] for p in mca_payments))
+    mca_positions = []
+    for lender, payments in lender_payments.items():
+        dates = [p['date'] for p in payments if p.get('date')]
+        frequency = detect_payment_frequency(dates)
+        position = reverse_engineer_mca_position(payments, frequency)
+        
+        mca_positions.append({
+            'lender': lender,
+            'frequency': frequency,
+            'payment_count': len(payments),
+            'total_paid': sum(p['amount'] for p in payments),
+            'avg_payment': position.get('avg_payment', 0),
+            'monthly_cost': position.get('monthly_cost', 0),
+            'est_funding': position.get('est_funding', 0),
+            'est_remaining': position.get('est_remaining', 0),
+            'match_type': payments[0].get('match_type', 'unknown') if payments else 'unknown',
+            'first_payment': min(dates) if dates else None,
+            'last_payment': max(dates) if dates else None,
+        })
     
+    mca_positions.sort(key=lambda x: x['monthly_cost'], reverse=True)
+    
+    payment_changes = track_payment_changes(lender_payments)
+    
+    total_monthly_debt = sum(p['monthly_cost'] for p in mca_positions)
+    total_outstanding = sum(p['est_remaining'] for p in mca_positions)
+    unique_lenders = len(mca_positions)
     stacking_detected = unique_lenders >= 2
     
     return {
-        'mca_payments': mca_payments[:20],
+        'mca_payments': mca_payments[:50],
         'mca_payment_count': len(mca_payments),
-        'mca_total_payments': total_mca,
+        'mca_total_payments': sum(p['amount'] for p in mca_payments),
         'unique_mca_lenders': unique_lenders,
         'stacking_detected': stacking_detected,
         'stacking_flag': stacking_detected,
+        'mca_positions': mca_positions,
+        'total_monthly_debt': round(total_monthly_debt, 2),
+        'total_outstanding': round(total_outstanding, 2),
+        'payment_changes': payment_changes,
+    }
+
+
+def detect_funding_events(transactions: List[Dict]) -> Dict:
+    """
+    Detect likely MCA funding events (large incoming wires/deposits).
+    """
+    funding_events = []
+    
+    for txn in transactions:
+        description = txn.get('description', '')
+        desc_lower = description.lower()
+        credit = txn.get('credit', 0)
+        
+        if credit < 3000:
+            continue
+        
+        is_funding = False
+        funding_type = 'unknown'
+        
+        if matches_patterns(desc_lower, FUNDING_PATTERNS):
+            is_funding = True
+            funding_type = 'wire'
+        
+        if re.search(r'wire|fed\s*ref|incoming', desc_lower) and credit >= 5000:
+            is_funding = True
+            funding_type = 'wire'
+        
+        if is_funding:
+            is_likely_mca = credit >= 10000 and credit <= 150000
+            
+            funding_events.append({
+                'date': txn.get('date'),
+                'description': description[:100],
+                'amount': credit,
+                'funding_type': funding_type,
+                'likely_mca': is_likely_mca,
+            })
+    
+    funding_events.sort(key=lambda x: x.get('date', ''), reverse=True)
+    
+    most_recent = funding_events[0] if funding_events else None
+    if most_recent:
+        try:
+            last_date = datetime.strptime(most_recent['date'], '%Y-%m-%d')
+            days_since = (datetime.now() - last_date).days
+        except:
+            days_since = 999
+    else:
+        days_since = 999
+    
+    return {
+        'funding_events': funding_events[:20],
+        'funding_count': len(funding_events),
+        'total_funding': sum(f['amount'] for f in funding_events),
+        'likely_mca_fundings': [f for f in funding_events if f.get('likely_mca')],
+        'most_recent_funding': most_recent,
+        'days_since_last_funding': days_since,
+        'recent_funding_flag': days_since <= 30,
+    }
+
+
+def analyze_revenue_sources(transactions: List[Dict]) -> Dict:
+    """
+    Categorize and analyze revenue sources.
+    """
+    sources = defaultdict(lambda: {'amount': 0, 'count': 0, 'transactions': []})
+    
+    for txn in transactions:
+        description = txn.get('description', '')
+        desc_lower = description.lower()
+        credit = txn.get('credit', 0)
+        
+        if credit <= 0:
+            continue
+        
+        matched = False
+        for source_name, config in REVENUE_SOURCE_PATTERNS.items():
+            if re.search(config['pattern'], desc_lower):
+                sources[source_name]['amount'] += credit
+                sources[source_name]['count'] += 1
+                sources[source_name]['type'] = config['type']
+                sources[source_name]['transactions'].append({
+                    'date': txn.get('date'),
+                    'amount': credit,
+                })
+                matched = True
+                break
+        
+        if not matched:
+            sources['other']['amount'] += credit
+            sources['other']['count'] += 1
+            sources['other']['type'] = 'other'
+    
+    total_revenue = sum(s['amount'] for s in sources.values())
+    
+    source_summary = []
+    for name, data in sources.items():
+        if data['amount'] > 0:
+            monthly_avg = data['amount'] / 3
+            source_summary.append({
+                'source': name,
+                'type': data.get('type', 'other'),
+                'total': round(data['amount'], 2),
+                'monthly_avg': round(monthly_avg, 2),
+                'count': data['count'],
+                'pct_of_revenue': round((data['amount'] / total_revenue * 100) if total_revenue > 0 else 0, 1),
+            })
+    
+    source_summary.sort(key=lambda x: x['total'], reverse=True)
+    
+    return {
+        'sources': source_summary[:15],
+        'total_revenue': round(total_revenue, 2),
+        'cc_processing_total': sum(s['total'] for s in source_summary if s['type'] == 'cc_processing'),
+        'delivery_total': sum(s['total'] for s in source_summary if s['type'] == 'delivery'),
+        'cash_total': sum(s['total'] for s in source_summary if s['type'] == 'cash'),
+    }
+
+
+def analyze_recurring_expenses(transactions: List[Dict]) -> Dict:
+    """
+    Identify and analyze recurring expenses.
+    """
+    expenses = defaultdict(lambda: {'amount': 0, 'count': 0, 'transactions': []})
+    
+    for txn in transactions:
+        description = txn.get('description', '')
+        desc_lower = description.lower()
+        debit = txn.get('debit', 0)
+        
+        if debit <= 0:
+            continue
+        
+        for expense_name, config in RECURRING_EXPENSE_PATTERNS.items():
+            if re.search(config['pattern'], desc_lower):
+                expenses[expense_name]['amount'] += debit
+                expenses[expense_name]['count'] += 1
+                expenses[expense_name]['type'] = config['type']
+                expenses[expense_name]['transactions'].append({
+                    'date': txn.get('date'),
+                    'amount': debit,
+                    'description': description[:50],
+                })
+                break
+    
+    expense_summary = []
+    for name, data in expenses.items():
+        if data['amount'] > 0:
+            avg_payment = data['amount'] / data['count'] if data['count'] > 0 else 0
+            monthly_est = data['amount'] / 3
+            expense_summary.append({
+                'expense': name,
+                'type': data.get('type', 'other'),
+                'total': round(data['amount'], 2),
+                'monthly_est': round(monthly_est, 2),
+                'count': data['count'],
+                'avg_payment': round(avg_payment, 2),
+            })
+    
+    expense_summary.sort(key=lambda x: x['total'], reverse=True)
+    
+    return {
+        'expenses': expense_summary,
+        'payroll_monthly': sum(e['monthly_est'] for e in expense_summary if e['type'] == 'payroll'),
+        'rent_monthly': sum(e['monthly_est'] for e in expense_summary if e['type'] == 'rent'),
+        'utilities_monthly': sum(e['monthly_est'] for e in expense_summary if e['type'] == 'utilities'),
+        'supplies_monthly': sum(e['monthly_est'] for e in expense_summary if e['type'] in ['food_supplier', 'supplies']),
+    }
+
+
+def detect_red_flags(transactions: List[Dict], mca_data: Dict, funding_data: Dict) -> Dict:
+    """
+    Identify critical red flags for underwriting.
+    """
+    red_flags = []
+    
+    mca_positions = mca_data.get('mca_positions', [])
+    if len(mca_positions) >= 5:
+        red_flags.append({
+            'flag': 'HEAVY_STACKING',
+            'severity': 'critical',
+            'detail': f'{len(mca_positions)} active MCA positions detected',
+        })
+    elif len(mca_positions) >= 3:
+        red_flags.append({
+            'flag': 'MODERATE_STACKING',
+            'severity': 'high',
+            'detail': f'{len(mca_positions)} active MCA positions detected',
+        })
+    
+    days_since_funding = funding_data.get('days_since_last_funding', 999)
+    if days_since_funding <= 14:
+        red_flags.append({
+            'flag': 'VERY_RECENT_FUNDING',
+            'severity': 'critical',
+            'detail': f'Most recent funding only {days_since_funding} days ago',
+        })
+    elif days_since_funding <= 30:
+        red_flags.append({
+            'flag': 'RECENT_FUNDING',
+            'severity': 'high',
+            'detail': f'Funding received {days_since_funding} days ago',
+        })
+    
+    total_monthly_debt = mca_data.get('total_monthly_debt', 0)
+    if total_monthly_debt >= 25000:
+        red_flags.append({
+            'flag': 'HIGH_MONTHLY_DEBT',
+            'severity': 'critical',
+            'detail': f'Monthly MCA payments: ${total_monthly_debt:,.0f}',
+        })
+    
+    returned_deposits = []
+    returned_total = 0
+    for txn in transactions:
+        desc = txn.get('description', '').lower()
+        if 'returned' in desc or 'reversal' in desc or 'chargeback' in desc:
+            debit = txn.get('debit', 0)
+            if debit > 0:
+                returned_deposits.append(txn)
+                returned_total += debit
+    
+    if returned_total >= 10000:
+        red_flags.append({
+            'flag': 'HIGH_RETURNED_DEPOSITS',
+            'severity': 'high',
+            'detail': f'${returned_total:,.0f} in returned/reversed deposits',
+        })
+    
+    payment_changes = mca_data.get('payment_changes', {})
+    stopped_count = sum(1 for c in payment_changes.values() if c.get('status') == 'STOPPED')
+    if stopped_count >= 2:
+        red_flags.append({
+            'flag': 'STOPPED_PAYMENTS',
+            'severity': 'high',
+            'detail': f'{stopped_count} MCA positions show stopped payments',
+        })
+    
+    return {
+        'red_flags': red_flags,
+        'critical_count': sum(1 for f in red_flags if f['severity'] == 'critical'),
+        'high_count': sum(1 for f in red_flags if f['severity'] == 'high'),
+        'has_critical': any(f['severity'] == 'critical' for f in red_flags),
+        'returned_total': returned_total,
     }
 
 
@@ -373,16 +843,21 @@ def calculate_risk_score(
 def generate_risk_profile(transactions: List[Dict], daily_balances: Optional[pd.DataFrame] = None) -> Dict:
     """
     Generate comprehensive risk profile for the applicant.
+    Includes enhanced MCA detection, funding analysis, and red flags.
     """
     if not transactions:
         return {
             'nsf_analysis': {'nsf_count': 0, 'nsf_total_fees': 0, 'nsf_flag': False},
             'negative_days': {'negative_days_count': 0, 'negative_percentage': 0, 'negative_flag': False},
             'gambling': {'gambling_count': 0, 'gambling_flag': False},
-            'mca_positions': {'mca_payment_count': 0, 'stacking_detected': False},
+            'mca_positions': {'mca_payment_count': 0, 'stacking_detected': False, 'mca_positions': []},
             'cash_activity': {'cash_percentage': 0, 'high_cash_flag': False},
             'risk_score': {'risk_score': 50, 'risk_tier': 'C', 'risk_factors': ['No transaction data']},
             'average_daily_balance': 0,
+            'funding_analysis': {'funding_events': [], 'funding_count': 0},
+            'revenue_sources': {'sources': []},
+            'recurring_expenses': {'expenses': []},
+            'red_flags': {'red_flags': [], 'critical_count': 0},
         }
     
     nsf_data = count_nsf_occurrences(transactions)
@@ -397,9 +872,24 @@ def generate_risk_profile(transactions: List[Dict], daily_balances: Optional[pd.
     
     cash_data = flag_cash_atm_activity(transactions)
     
+    funding_data = detect_funding_events(transactions)
+    
+    revenue_sources = analyze_revenue_sources(transactions)
+    
+    recurring_expenses = analyze_recurring_expenses(transactions)
+    
+    red_flags = detect_red_flags(transactions, mca_data, funding_data)
+    
     risk_score = calculate_risk_score(
         nsf_data, negative_days_data, gambling_data, mca_data, cash_data
     )
+    
+    if red_flags.get('has_critical'):
+        risk_score['risk_score'] = min(100, risk_score['risk_score'] + 20)
+        risk_score['risk_factors'].append(f"Critical red flags: {red_flags.get('critical_count')}")
+        if risk_score['risk_score'] > 70:
+            risk_score['risk_tier'] = 'Decline'
+            risk_score['approved'] = False
     
     return {
         'nsf_analysis': nsf_data,
@@ -409,4 +899,8 @@ def generate_risk_profile(transactions: List[Dict], daily_balances: Optional[pd.
         'cash_activity': cash_data,
         'risk_score': risk_score,
         'average_daily_balance': avg_balance,
+        'funding_analysis': funding_data,
+        'revenue_sources': revenue_sources,
+        'recurring_expenses': recurring_expenses,
+        'red_flags': red_flags,
     }

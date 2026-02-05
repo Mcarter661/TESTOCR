@@ -393,6 +393,233 @@ def add_lender_matches_sheet(workbook: xlsxwriter.Workbook, matches: List[Dict],
         sheet.write(row, 5, notes[:100], formats['text'])
 
 
+def add_mca_positions_sheet(workbook: xlsxwriter.Workbook, risk_profile: Dict, formats: Dict) -> None:
+    """
+    Add detailed MCA positions sheet with reverse-engineered data.
+    """
+    sheet = workbook.add_worksheet('MCA Positions')
+    
+    sheet.set_column('A:A', 25)
+    sheet.set_column('B:B', 12)
+    sheet.set_column('C:C', 12)
+    sheet.set_column('D:D', 15)
+    sheet.set_column('E:E', 15)
+    sheet.set_column('F:F', 15)
+    sheet.set_column('G:G', 15)
+    sheet.set_column('H:H', 12)
+    
+    row = 0
+    sheet.write(row, 0, 'EXISTING MCA POSITIONS ANALYSIS', formats['title'])
+    row += 2
+    
+    mca_data = risk_profile.get('mca_positions', {})
+    
+    sheet.merge_range(row, 0, row, 7, 'POSITION SUMMARY', formats['subheader'])
+    row += 1
+    
+    sheet.write(row, 0, 'Total Lenders Detected', formats['label'])
+    sheet.write(row, 1, mca_data.get('unique_mca_lenders', 0), formats['number'])
+    sheet.write(row, 2, 'Stacking', formats['label'])
+    stacking = 'YES' if mca_data.get('stacking_detected') else 'NO'
+    sheet.write(row, 3, stacking, formats['bad'] if stacking == 'YES' else formats['good'])
+    row += 1
+    
+    sheet.write(row, 0, 'Total Monthly Debt', formats['label'])
+    sheet.write(row, 1, mca_data.get('total_monthly_debt', 0), formats['currency'])
+    sheet.write(row, 2, 'Est. Outstanding', formats['label'])
+    sheet.write(row, 3, mca_data.get('total_outstanding', 0), formats['currency'])
+    row += 2
+    
+    sheet.merge_range(row, 0, row, 7, 'REVERSE-ENGINEERED POSITIONS', formats['subheader'])
+    row += 1
+    
+    headers = ['Funder', 'Frequency', 'Payments', 'Avg Payment', 'Monthly Cost', 'Est. Funding', 'Est. Remaining', 'Status']
+    for col, header in enumerate(headers):
+        sheet.write(row, col, header, formats['header'])
+    row += 1
+    
+    positions = mca_data.get('mca_positions', [])
+    payment_changes = mca_data.get('payment_changes', {})
+    
+    for pos in positions[:15]:
+        lender = pos.get('lender', 'Unknown')
+        status = payment_changes.get(lender, {}).get('status', 'ACTIVE')
+        
+        sheet.write(row, 0, lender, formats['text'])
+        sheet.write(row, 1, pos.get('frequency', 'unknown'), formats['text'])
+        sheet.write(row, 2, pos.get('payment_count', 0), formats['number'])
+        sheet.write(row, 3, pos.get('avg_payment', 0), formats['currency'])
+        sheet.write(row, 4, pos.get('monthly_cost', 0), formats['currency'])
+        sheet.write(row, 5, pos.get('est_funding', 0), formats['currency'])
+        sheet.write(row, 6, pos.get('est_remaining', 0), formats['currency'])
+        
+        status_format = formats['good'] if status == 'ACTIVE' else (formats['warning'] if status == 'REDUCED' else formats['bad'])
+        sheet.write(row, 7, status, status_format)
+        row += 1
+    
+    row += 1
+    sheet.merge_range(row, 0, row, 7, 'PAYMENT CHANGE TRACKING', formats['subheader'])
+    row += 1
+    
+    headers2 = ['Funder', 'First Avg', 'Recent Avg', '% Change', 'Status', 'Last Payment', 'Days Since', '']
+    for col, header in enumerate(headers2):
+        sheet.write(row, col, header, formats['header'])
+    row += 1
+    
+    for lender, change in payment_changes.items():
+        sheet.write(row, 0, lender, formats['text'])
+        sheet.write(row, 1, change.get('first_avg', 0), formats['currency'])
+        sheet.write(row, 2, change.get('second_avg', 0), formats['currency'])
+        
+        pct = change.get('pct_change', 0)
+        pct_format = formats['good'] if pct < -20 else (formats['bad'] if pct > 20 else formats['text'])
+        sheet.write(row, 3, pct / 100, formats['percent'])
+        
+        status = change.get('status', 'ACTIVE')
+        status_format = formats['good'] if status == 'ACTIVE' else (formats['warning'] if status == 'REDUCED' else formats['bad'])
+        sheet.write(row, 4, status, status_format)
+        sheet.write(row, 5, change.get('last_payment', ''), formats['date'])
+        sheet.write(row, 6, change.get('days_since_last', 0), formats['number'])
+        row += 1
+
+
+def add_funding_analysis_sheet(workbook: xlsxwriter.Workbook, risk_profile: Dict, formats: Dict) -> None:
+    """
+    Add funding events analysis sheet.
+    """
+    sheet = workbook.add_worksheet('Funding Analysis')
+    
+    sheet.set_column('A:A', 12)
+    sheet.set_column('B:B', 40)
+    sheet.set_column('C:C', 15)
+    sheet.set_column('D:D', 12)
+    sheet.set_column('E:E', 15)
+    
+    row = 0
+    sheet.write(row, 0, 'FUNDING EVENTS ANALYSIS', formats['title'])
+    row += 2
+    
+    funding = risk_profile.get('funding_analysis', {})
+    
+    sheet.merge_range(row, 0, row, 4, 'FUNDING SUMMARY', formats['subheader'])
+    row += 1
+    
+    sheet.write(row, 0, 'Total Funding Events', formats['label'])
+    sheet.write(row, 1, funding.get('funding_count', 0), formats['number'])
+    row += 1
+    sheet.write(row, 0, 'Total Funding Amount', formats['label'])
+    sheet.write(row, 1, funding.get('total_funding', 0), formats['currency'])
+    row += 1
+    sheet.write(row, 0, 'Days Since Last', formats['label'])
+    days = funding.get('days_since_last_funding', 999)
+    days_format = formats['bad'] if days <= 30 else formats['good']
+    sheet.write(row, 1, days if days < 999 else 'N/A', days_format if days < 999 else formats['text'])
+    row += 2
+    
+    sheet.merge_range(row, 0, row, 4, 'FUNDING EVENTS (Wire Transfers)', formats['subheader'])
+    row += 1
+    
+    headers = ['Date', 'Description', 'Amount', 'Type', 'Likely MCA']
+    for col, header in enumerate(headers):
+        sheet.write(row, col, header, formats['header'])
+    row += 1
+    
+    for event in funding.get('funding_events', [])[:20]:
+        sheet.write(row, 0, event.get('date', ''), formats['date'])
+        sheet.write(row, 1, event.get('description', '')[:40], formats['text'])
+        sheet.write(row, 2, event.get('amount', 0), formats['currency'])
+        sheet.write(row, 3, event.get('funding_type', ''), formats['text'])
+        
+        likely = 'YES' if event.get('likely_mca') else 'NO'
+        likely_format = formats['warning'] if likely == 'YES' else formats['text']
+        sheet.write(row, 4, likely, likely_format)
+        row += 1
+    
+    row += 2
+    revenue = risk_profile.get('revenue_sources', {})
+    sheet.merge_range(row, 0, row, 4, 'REVENUE SOURCES', formats['subheader'])
+    row += 1
+    
+    headers2 = ['Source', 'Type', 'Total', 'Monthly Avg', '% of Revenue']
+    for col, header in enumerate(headers2):
+        sheet.write(row, col, header, formats['header'])
+    row += 1
+    
+    for source in revenue.get('sources', [])[:10]:
+        sheet.write(row, 0, source.get('source', ''), formats['text'])
+        sheet.write(row, 1, source.get('type', ''), formats['text'])
+        sheet.write(row, 2, source.get('total', 0), formats['currency'])
+        sheet.write(row, 3, source.get('monthly_avg', 0), formats['currency'])
+        sheet.write(row, 4, source.get('pct_of_revenue', 0) / 100, formats['percent'])
+        row += 1
+    
+    row += 2
+    expenses = risk_profile.get('recurring_expenses', {})
+    sheet.merge_range(row, 0, row, 4, 'RECURRING EXPENSES', formats['subheader'])
+    row += 1
+    
+    headers3 = ['Expense', 'Type', 'Total', 'Monthly Est', 'Avg Payment']
+    for col, header in enumerate(headers3):
+        sheet.write(row, col, header, formats['header'])
+    row += 1
+    
+    for exp in expenses.get('expenses', [])[:10]:
+        sheet.write(row, 0, exp.get('expense', ''), formats['text'])
+        sheet.write(row, 1, exp.get('type', ''), formats['text'])
+        sheet.write(row, 2, exp.get('total', 0), formats['currency'])
+        sheet.write(row, 3, exp.get('monthly_est', 0), formats['currency'])
+        sheet.write(row, 4, exp.get('avg_payment', 0), formats['currency'])
+        row += 1
+
+
+def add_red_flags_sheet(workbook: xlsxwriter.Workbook, risk_profile: Dict, formats: Dict) -> None:
+    """
+    Add red flags summary sheet.
+    """
+    sheet = workbook.add_worksheet('Red Flags')
+    
+    sheet.set_column('A:A', 25)
+    sheet.set_column('B:B', 15)
+    sheet.set_column('C:C', 50)
+    
+    row = 0
+    sheet.write(row, 0, 'RED FLAGS & WARNINGS', formats['title'])
+    row += 2
+    
+    red_flags = risk_profile.get('red_flags', {})
+    
+    sheet.merge_range(row, 0, row, 2, 'SUMMARY', formats['subheader'])
+    row += 1
+    
+    critical = red_flags.get('critical_count', 0)
+    high = red_flags.get('high_count', 0)
+    
+    sheet.write(row, 0, 'Critical Flags', formats['label'])
+    sheet.write(row, 1, critical, formats['bad'] if critical > 0 else formats['good'])
+    row += 1
+    sheet.write(row, 0, 'High Priority Flags', formats['label'])
+    sheet.write(row, 1, high, formats['warning'] if high > 0 else formats['good'])
+    row += 2
+    
+    sheet.merge_range(row, 0, row, 2, 'DETAILED FLAGS', formats['subheader'])
+    row += 1
+    
+    headers = ['Flag', 'Severity', 'Detail']
+    for col, header in enumerate(headers):
+        sheet.write(row, col, header, formats['header'])
+    row += 1
+    
+    for flag in red_flags.get('red_flags', []):
+        sheet.write(row, 0, flag.get('flag', ''), formats['text'])
+        
+        severity = flag.get('severity', '')
+        sev_format = formats['bad'] if severity == 'critical' else formats['warning']
+        sheet.write(row, 1, severity.upper(), sev_format)
+        
+        sheet.write(row, 2, flag.get('detail', ''), formats['text'])
+        row += 1
+
+
 def generate_json_output(full_data: Dict, output_path: str) -> None:
     """
     Generate JSON output file with all analysis data.
@@ -420,6 +647,7 @@ def generate_master_report(
 ) -> str:
     """
     Main function to generate the complete Master Excel report.
+    Now includes enhanced MCA positions, funding analysis, and red flags.
     """
     os.makedirs(output_dir, exist_ok=True)
     
@@ -431,9 +659,10 @@ def generate_master_report(
     formats = get_formats(workbook)
     
     full_summary = {
-        'account_info': summary_data if isinstance(summary_data, dict) else {},
-        'revenue_metrics': {},
+        'account_info': summary_data.get('account_info', {}) if isinstance(summary_data, dict) else {},
+        'revenue_metrics': summary_data.get('revenue_metrics', {}) if isinstance(summary_data, dict) else {},
         'risk_profile': risk_profile if risk_profile else {},
+        'deal_metrics': summary_data.get('deal_metrics', {}) if isinstance(summary_data, dict) else {},
     }
     add_summary_sheet(workbook, full_summary, formats)
     
@@ -445,6 +674,15 @@ def generate_master_report(
     
     if risk_profile:
         add_risk_analysis_sheet(workbook, risk_profile, formats)
+        
+        if risk_profile.get('mca_positions', {}).get('mca_positions'):
+            add_mca_positions_sheet(workbook, risk_profile, formats)
+        
+        if risk_profile.get('funding_analysis', {}).get('funding_events') or risk_profile.get('revenue_sources', {}).get('sources'):
+            add_funding_analysis_sheet(workbook, risk_profile, formats)
+        
+        if risk_profile.get('red_flags', {}).get('red_flags'):
+            add_red_flags_sheet(workbook, risk_profile, formats)
     
     if lender_matches:
         add_lender_matches_sheet(workbook, lender_matches, formats)
@@ -458,6 +696,9 @@ def generate_master_report(
         'transaction_count': len(transactions) if transactions else 0,
         'risk_profile': risk_profile,
         'lender_match_count': len([m for m in lender_matches if m.get('is_match')]) if lender_matches else 0,
+        'mca_positions': risk_profile.get('mca_positions', {}) if risk_profile else {},
+        'funding_analysis': risk_profile.get('funding_analysis', {}) if risk_profile else {},
+        'red_flags': risk_profile.get('red_flags', {}) if risk_profile else {},
     }
     generate_json_output(json_data, json_path)
     
