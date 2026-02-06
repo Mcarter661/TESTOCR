@@ -210,7 +210,10 @@ def _build_deal_input(scrubbed_data, position_data, risk_profile, account_info, 
     neg_data = risk_profile.get('negative_days', {})
     deal.total_nsf_count = nsf_data.get('nsf_count', 0)
     deal.total_negative_days = neg_data.get('negative_days_count', 0)
-    deal.avg_daily_balance = risk_profile.get('avg_daily_balance', 0)
+    adb = risk_profile.get('average_daily_balance', 0)
+    if not adb:
+        adb = risk_profile.get('avg_daily_balance', 0)
+    deal.avg_daily_balance = adb
 
     return deal
 
@@ -240,12 +243,20 @@ def run_combined_pipeline(pdf_paths):
         ocr_total_deposits = 0
         ocr_total_withdrawals = 0
         
+        per_file_transactions = {}
         for pdf_path in pdf_paths:
             ocr_data = process_bank_statement(pdf_path)
             if ocr_data and ocr_data.get('success'):
                 transactions = ocr_data.get('transactions', [])
+                bank_fmt = ocr_data.get('bank_format', 'unknown')
+                bank_label = ocr_data.get('account_info', {}).get('bank_name', bank_fmt.replace('_', ' ').title())
+                for txn in transactions:
+                    txn['source_bank'] = bank_label
                 all_transactions.extend(transactions)
-                bank_formats.append(ocr_data.get('bank_format', 'unknown'))
+                bank_formats.append(bank_fmt)
+                if bank_label not in per_file_transactions:
+                    per_file_transactions[bank_label] = []
+                per_file_transactions[bank_label].extend(transactions)
                 total_pages += ocr_data.get('page_count', 1)
                 
                 if ocr_data.get('fraud_flags'):
@@ -419,12 +430,15 @@ def run_combined_pipeline(pdf_paths):
             scrubbed_data, position_data, risk_profile, all_account_info, deal_metrics
         )
 
+        expense_data = risk_profile.get('recurring_expenses', {})
+
         risk_data_for_summary = {
             'risk_score': risk_profile.get('risk_score', {}).get('risk_score', 0),
             'risk_tier': risk_profile.get('risk_score', {}).get('risk_tier', 'C'),
             'cash_risk_flag': enhanced_risk.get('cash_risk_flag', False),
             'gambling_flag': enhanced_risk.get('gambling_flag', False),
             'red_flags': enhanced_risk.get('red_flags', []),
+            'cash_deposit_percent': risk_profile.get('cash_deposit_percent', 0),
         }
         lender_data_for_summary = {
             'eligible_count': lender_matches.get('summary', {}).get('eligible_count', 0),
@@ -435,6 +449,7 @@ def run_combined_pipeline(pdf_paths):
             deal_input,
             risk_data=risk_data_for_summary,
             lender_matches=lender_data_for_summary,
+            expense_data=expense_data,
         )
         deal_summary = asdict(deal_summary_obj)
 
@@ -447,6 +462,7 @@ def run_combined_pipeline(pdf_paths):
             output_dir=OUTPUT_FOLDER,
             fraud_flags=all_fraud_flags,
             deal_summary=deal_summary,
+            per_bank_transactions=per_file_transactions,
         )
 
         if report_path:
@@ -638,12 +654,15 @@ def run_pipeline(pdf_path):
             ocr_data.get('account_info', {}), deal_metrics
         )
 
+        expense_data_single = risk_profile.get('recurring_expenses', {})
+
         risk_data_for_summary = {
             'risk_score': risk_profile.get('risk_score', {}).get('risk_score', 0),
             'risk_tier': risk_profile.get('risk_score', {}).get('risk_tier', 'C'),
             'cash_risk_flag': enhanced_risk.get('cash_risk_flag', False),
             'gambling_flag': enhanced_risk.get('gambling_flag', False),
             'red_flags': enhanced_risk.get('red_flags', []),
+            'cash_deposit_percent': risk_profile.get('cash_deposit_percent', 0),
         }
         lender_data_for_summary = {
             'eligible_count': lender_matches.get('summary', {}).get('eligible_count', 0),
@@ -654,6 +673,7 @@ def run_pipeline(pdf_path):
             deal_input,
             risk_data=risk_data_for_summary,
             lender_matches=lender_data_for_summary,
+            expense_data=expense_data_single,
         )
         deal_summary = asdict(deal_summary_obj)
 

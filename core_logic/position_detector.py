@@ -71,6 +71,7 @@ def detect_positions(transactions: list, keywords: dict, factor_rates: dict) -> 
             deposits, first_date, lender_name, all_lender_kws, payment_amount
         )
 
+        has_known_funding = bool(funding_dep)
         if funding_dep:
             est_original = funding_dep["amount"]
             funding_date = funding_dep["date"]
@@ -126,6 +127,7 @@ def detect_positions(transactions: list, keywords: dict, factor_rates: dict) -> 
             "last_payment_date": last_date,
             "funding_deposit_date": funding_date,
             "funding_deposit_amount": round(funding_amount, 2) if funding_amount else None,
+            "has_known_funding": has_known_funding,
             "estimated_factor_rate": rate,
             "estimated_original_funding": round(est_original, 2),
             "estimated_total_payback": round(est_total_payback, 2),

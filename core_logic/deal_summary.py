@@ -48,6 +48,20 @@ class DealSummary:
     total_remaining_balance: float = 0.0
     days_since_last_funding: int = 0
 
+    # Leverage Metrics
+    total_outstanding_debt: float = 0.0
+    leverage_ratio: float = 0.0
+    dti_ratio: float = 0.0
+    dscr: float = 0.0
+
+    # Expense Summary
+    payroll_monthly: float = 0.0
+    rent_monthly: float = 0.0
+    utilities_monthly: float = 0.0
+    supplies_monthly: float = 0.0
+    total_fixed_expenses: float = 0.0
+    net_available_cash_flow: float = 0.0
+
     # Monthly Breakdown
     monthly_breakdown: List[Dict] = field(default_factory=list)
 
@@ -78,7 +92,7 @@ class DealSummary:
     top_lender_matches: List[Dict] = field(default_factory=list)
 
 
-def generate_deal_summary(deal: DealInput, risk_data: dict = None, lender_matches: dict = None) -> DealSummary:
+def generate_deal_summary(deal: DealInput, risk_data: dict = None, lender_matches: dict = None, expense_data: dict = None) -> DealSummary:
     """Generate a complete deal summary from DealInput."""
     summary = DealSummary()
 
@@ -129,6 +143,7 @@ def generate_deal_summary(deal: DealInput, risk_data: dict = None, lender_matche
     summary.total_remaining_balance = deal.total_remaining_balance
 
     for pos in deal.positions:
+        pos_holdback_pct = (pos.monthly_payment / deal.avg_monthly_revenue * 100) if deal.avg_monthly_revenue > 0 else 0
         summary.positions.append({
             "position": pos.position_number,
             "funder": pos.funder_name,
@@ -143,8 +158,10 @@ def generate_deal_summary(deal: DealInput, risk_data: dict = None, lender_matche
             "paid_in_pct": pos.paid_in_percent,
             "est_payoff": pos.estimated_payoff_date,
             "monthly_holdback": pos.monthly_payment,
+            "holdback_percent": round(pos_holdback_pct, 1),
             "is_buyout": pos.is_buyout,
             "notes": pos.notes,
+            "has_known_funding": pos.notes != "estimated" if hasattr(pos, 'notes') else True,
         })
 
     # Days since last funding
@@ -174,6 +191,32 @@ def generate_deal_summary(deal: DealInput, risk_data: dict = None, lender_matche
             "holdback_percent": month.holdback_percent,
             "notes": month.notes,
         })
+
+    # Leverage Metrics
+    summary.total_outstanding_debt = summary.total_remaining_balance
+    if summary.annualized_revenue > 0:
+        summary.leverage_ratio = summary.total_outstanding_debt / summary.annualized_revenue
+    if summary.avg_monthly_revenue > 0:
+        summary.dti_ratio = summary.total_current_holdback / summary.avg_monthly_revenue * 100
+    net_operating_income = summary.avg_monthly_revenue - summary.total_current_holdback
+    if summary.total_current_holdback > 0:
+        summary.dscr = net_operating_income / summary.total_current_holdback
+    else:
+        summary.dscr = 0.0
+
+    # Expense Summary
+    if expense_data:
+        summary.payroll_monthly = expense_data.get('payroll_monthly', 0)
+        summary.rent_monthly = expense_data.get('rent_monthly', 0)
+        summary.utilities_monthly = expense_data.get('utilities_monthly', 0)
+        summary.supplies_monthly = expense_data.get('supplies_monthly', 0)
+        summary.total_fixed_expenses = (
+            summary.payroll_monthly + summary.rent_monthly +
+            summary.utilities_monthly + summary.supplies_monthly
+        )
+    summary.net_available_cash_flow = (
+        summary.avg_monthly_revenue - summary.total_current_holdback - summary.total_fixed_expenses
+    )
 
     # Proposed Deal
     summary.proposed_funding = deal.proposed_funding

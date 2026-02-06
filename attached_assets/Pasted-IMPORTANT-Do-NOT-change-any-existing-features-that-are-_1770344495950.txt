@@ -1,0 +1,83 @@
+IMPORTANT: Do NOT change any existing features that are working. Only ADD the missing metrics.
+
+=== PART 1: ADD MISSING METRICS ===
+
+1. LEVERAGE SECTION in Deal Summary tab (add new section):
+   - Total Outstanding Debt: sum of all Est. Remaining
+   - Leverage Ratio: (Total Outstanding / Avg Monthly Revenue) × 100
+   - DTI: (Monthly Holdback / Monthly Revenue) × 100
+   - Debt Service Coverage Ratio: Monthly Revenue / Monthly Holdback
+
+2. FIX ADB/Payment Ratio:
+   - Currently shows 0.00x
+   - Should be: Avg Daily Balance / Daily Payment
+   - Check why ADB is not being passed to the calculation
+
+3. ADD Per-Position Holdback % column:
+   - In positions table, add column: (Position Monthly Cost / Monthly Revenue) × 100
+
+4. ADD Expense Summary section in Deal Summary:
+   - Pull from existing recurring_expenses data
+   - Show: Payroll, Rent, Utilities, Supplies, Total
+
+5. ADD Net Available Cash Flow:
+   - = Monthly Revenue - Monthly Holdback - Total Operating Expenses
+
+=== PART 2: MONTHLY BREAKDOWN BY ACCOUNT ===
+
+The Monthly Analysis should show:
+
+TRUIST ACCOUNT:
+| Month | Deposits | Withdrawals | Net | Ending Balance |
+| Nov 2025 | $183,453 | $192,181 | -$8,727 | $12,778 |
+| Dec 2025 | $190,293 | $202,024 | -$11,730 | $1,047 |
+| Jan 2026 | $31,309 | $31,990 | -$680 | $366 |
+| TRUIST TOTAL | $405,055 | $426,195 | -$21,137 | |
+
+PNC ACCOUNT:
+| Month | Deposits | Withdrawals | Net | Ending Balance |
+| Dec 2025 | $48,244 | $47,981 | $263 | $263 |
+| Jan 2026 | $141,309 | $131,495 | $9,814 | $10,077 |
+| PNC TOTAL | $189,553 | $179,476 | $10,077 | |
+
+COMBINED TOTAL:
+| Total Deposits | Total Withdrawals | Net Cash Flow |
+| $594,608 | $605,671 | -$11,060 |
+
+=== PART 3: REVERSE ENGINEERING - HANDLE UNKNOWNS ===
+
+For reverse-engineered position data:
+- Est. Funding Amount: If we can't calculate it, show "Unknown" not a guessed number
+- Est. Remaining: If we don't know original funding, show "Unknown"
+- Paid In %: If we don't know total payback, show "Unknown"
+- Est. Payoff: If we can't calculate, show "Unknown"
+
+ONLY show calculated values when we KNOW:
+- The original funding amount (from detected wire/deposit), OR
+- Enough payment history to reverse-engineer it confidently
+
+If we only see payments but don't know the original deal terms, show:
+- Payment Amount: $297.91 ✓ (we know this)
+- Frequency: Daily ✓ (we can detect this)
+- Monthly Cost: $6,405 ✓ (we can calculate this)
+- Est. Funding: "Unknown" (we're guessing)
+- Est. Remaining: "Unknown" (we're guessing)
+- Paid In %: "Unknown" (we're guessing)
+
+=== PART 4: VERIFY SCRUBBER EXCLUSIONS ===
+
+Confirm these features are working (don't rebuild, just verify):
+
+1. INTERNAL TRANSFERS (Apex Test):
+   - Transfers between Truist ↔ PNC accounts
+   - Should be EXCLUDED from revenue (count deposit side only once)
+
+2. OWNER DEPOSITS:
+   - Deposits from owner's personal account
+   - Should be EXCLUDED from revenue
+
+3. LOAN PROCEEDS:
+   - Large deposits from MCA funders (the funding, not revenue)
+   - Should be EXCLUDED from revenue
+
+Show me what's being excluded from revenue and why.
