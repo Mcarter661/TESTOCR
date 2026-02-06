@@ -9,7 +9,7 @@
         <div class="upload-zone" id="uploadZone">
             <div class="upload-icon">&#8679;</div>
             <h3>Drag & Drop PDF Files Here</h3>
-            <p>or click to browse - select multiple files at once</p>
+            <p>or click to browse - select up to 30 files at once</p>
             <input type="file" name="files" id="fileInput" multiple accept=".pdf" class="file-input">
             <div class="file-preview" id="filePreview"></div>
         </div>
@@ -104,9 +104,20 @@ fileInput.addEventListener('change', updatePreview);
 function updatePreview() {
     filePreview.innerHTML = '';
     const files = fileInput.files;
+    const maxFiles = 30;
+    
+    if (files.length > maxFiles) {
+        uploadActions.style.display = 'flex';
+        uploadSummary.textContent = 'Too many files! Maximum ' + maxFiles + ' files allowed.';
+        uploadSummary.style.color = '#dc2626';
+        document.getElementById('uploadBtn').disabled = true;
+        return;
+    }
     
     if (files.length > 0) {
         uploadActions.style.display = 'flex';
+        uploadSummary.style.color = '';
+        document.getElementById('uploadBtn').disabled = false;
         let totalSize = 0;
         for (let file of files) {
             totalSize += file.size;

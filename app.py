@@ -54,7 +54,8 @@ OUTPUT_FOLDER = 'output_reports'
 ALLOWED_EXTENSIONS = {'pdf'}
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max
+app.config['MAX_CONTENT_LENGTH'] = 300 * 1024 * 1024  # 300MB max
+MAX_FILES = 30
 
 for folder in [UPLOAD_FOLDER, CONFIG_FOLDER, PROCESSED_FOLDER, OUTPUT_FOLDER]:
     os.makedirs(folder, exist_ok=True)
@@ -124,6 +125,9 @@ def upload():
             return redirect(request.url)
         
         files = request.files.getlist('files')
+        if len(files) > MAX_FILES:
+            flash(f'Maximum {MAX_FILES} files allowed per upload', 'error')
+            return redirect(request.url)
         uploaded_count = 0
         
         for file in files:
