@@ -40,7 +40,7 @@ BANK_PATTERNS = {
     'wells_fargo': [r'Wells Fargo', r'WELLS FARGO', r'wellsfargo\.com', r'Optimize Business'],
     'citibank': [r'CITIBANK', r'CitiBusiness', r'Citibank,?\s+N\.?A\.?', r'Citi CBO'],
     'us_bank': [r'U\.?S\.?\s+Bank', r'US BANK', r'usbank\.com', r'Silver Business'],
-    'webster': [r'Webster\s*Bank', r'websterbank\.com', r'PLATINUM BUSINESS'],
+    'webster': [r'Webster\s*Bank', r'websterbank\.com', r'PLATINUM\s+BUSINESS\s+ANALYZED'],
     'td_bank': [r'TD Bank', r'TD BANK'],
     'capital_one': [r'Capital One', r'CAPITAL ONE'],
     'regions': [r'Regions Bank', r'REGIONS'],
@@ -850,9 +850,9 @@ def extract_transactions_pnc(text: str, tables: List[List] = None) -> List[Dict]
     return transactions
 
 
-def extract_transactions_chase(text: str, tables: List[List] = None) -> List[Dict]:
+def _extract_transactions_chase_legacy(text: str, tables: List[List] = None) -> List[Dict]:
     """
-    Chase-specific transaction parsing.
+    Legacy Chase parser - kept as fallback. Primary Chase parser is in bank_parsers.py.
     """
     if tables:
         table_transactions = extract_transactions_from_tables(tables)

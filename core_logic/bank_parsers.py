@@ -267,9 +267,10 @@ def extract_transactions_chase(text: str, tables: List[List] = None) -> List[Dic
     
     Format characteristics:
     - Date: MM/DD (year from header)
-    - Sections: DEPOSITS AND ADDITIONS, CHECKS PAID, ELECTRONIC WITHDRAWALS, etc.
-    - Amount AFTER description
-    - Multi-line ACH entries
+    - Sections: DEPOSITS AND ADDITIONS, CHECKS PAID, ELECTRONIC WITHDRAWALS, ATM & DEBIT CARD WITHDRAWALS
+    - Amount AFTER description (may have $ prefix)
+    - Multi-line ACH entries (continuation lines with Descr:, Ind Name:, Trn: etc.)
+    - Checks format: CHECK_NO ^ MM/DD AMOUNT
     - All amounts positive, section determines debit/credit
     """
     transactions = []
@@ -278,38 +279,48 @@ def extract_transactions_chase(text: str, tables: List[List] = None) -> List[Dic
     
     current_section = None
     section_is_credit = False
-    pending_description = []
     
-    # Section headers that indicate transaction type
-    credit_sections = ['DEPOSITS AND ADDITIONS', 'DEPOSITS', 'CREDITS', 'OTHER CREDITS']
-    debit_sections = ['CHECKS PAID', 'ELECTRONIC WITHDRAWALS', 'OTHER WITHDRAWALS', 
-                      'FEES', 'SERVICE CHARGES', 'ATM WITHDRAWALS', 'WITHDRAWALS']
+    credit_headers = ['DEPOSITS AND ADDITIONS']
+    debit_headers = ['CHECKS PAID', 'ELECTRONIC WITHDRAWALS', 'ATM & DEBIT CARD WITHDRAWALS',
+                     'OTHER WITHDRAWALS', 'FEES', 'SERVICE CHARGES']
+    
+    skip_patterns = re.compile(
+        r'^(Total |DATE|CHECK NO|If you see|not the original|\*|•|Page |\d+ items)',
+        re.IGNORECASE
+    )
     
     for i, line in enumerate(lines):
         line = line.strip()
         if not line:
             continue
         
-        # Detect section headers
         line_upper = line.upper()
-        for section in credit_sections:
-            if section in line_upper:
-                current_section = 'credit'
-                section_is_credit = True
-                continue
-        for section in debit_sections:
-            if section in line_upper:
+        
+        matched_section = False
+        for header in debit_headers:
+            if header in line_upper and not line_upper.startswith('TOTAL'):
                 current_section = 'debit'
                 section_is_credit = False
-                continue
+                matched_section = True
+                break
+        if not matched_section:
+            for header in credit_headers:
+                if header in line_upper and not line_upper.startswith('TOTAL'):
+                    current_section = 'credit'
+                    section_is_credit = True
+                    matched_section = True
+                    break
         
-        # Skip if not in a transaction section
+        if matched_section:
+            continue
+        
         if current_section is None:
             continue
         
-        # Chase format: MM/DD Description Amount
-        # Amount is at the end after description
-        match = re.match(r'^(\d{2}/\d{2})\s+(.+?)\s+([\d,]+\.\d{2})\s*$', line)
+        if skip_patterns.match(line):
+            continue
+        
+        match = re.match(r'^(\d{2}/\d{2})\s+(.+?)\s+\$?([\d,]+\.\d{2})\s*$', line)
         
         if match:
             date_str = match.group(1)
@@ -319,7 +330,6 @@ def extract_transactions_chase(text: str, tables: List[List] = None) -> List[Dic
             if amount is not None:
                 parsed_date = parse_date_safe(f"{date_str}/{year}")
                 
-                # Apply sign based on section
                 if not section_is_credit:
                     amount = -abs(amount)
                 else:
@@ -335,16 +345,35 @@ def extract_transactions_chase(text: str, tables: List[List] = None) -> List[Dic
                     'category': categorize_transaction(description),
                     'raw_line': line[:300]
                 })
-        else:
-            # Check for continuation lines (multi-line descriptions)
-            # These don't start with a date but contain additional info
-            if current_section and not re.match(r'^\d{2}/\d{2}', line):
-                # Could be part of previous transaction description
-                if transactions and len(line) > 5:
-                    # Append to previous transaction description
-                    prev_desc = transactions[-1]['description']
-                    if len(prev_desc) < 250:
-                        transactions[-1]['description'] = f"{prev_desc} {line}"[:300]
+            continue
+        
+        check_match = re.match(r'^(\d+)\s*\*?\^?\s*(\d{2}/\d{2})\s+\$?([\d,]+\.\d{2})\s*$', line)
+        if check_match and current_section == 'debit':
+            check_num = check_match.group(1)
+            date_str = check_match.group(2)
+            amount = parse_amount_safe(check_match.group(3))
+            
+            if amount is not None:
+                parsed_date = parse_date_safe(f"{date_str}/{year}")
+                amount = -abs(amount)
+                
+                transactions.append({
+                    'date': parsed_date or date_str,
+                    'description': f"CHECK #{check_num}",
+                    'amount': amount,
+                    'debit': abs(amount),
+                    'credit': 0,
+                    'balance': None,
+                    'category': 'CHECK',
+                    'raw_line': line[:300]
+                })
+            continue
+        
+        if current_section and not re.match(r'^\d{2}/\d{2}', line):
+            if transactions and len(line) > 5:
+                prev_desc = transactions[-1]['description']
+                if len(prev_desc) < 250:
+                    transactions[-1]['description'] = f"{prev_desc} {line}"[:300]
     
     return transactions
 
