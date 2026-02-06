@@ -4,9 +4,9 @@
 Web-based bank statement analysis system for MCA (Merchant Cash Advance) underwriting. This project provides a complete pipeline for processing bank statement PDFs, extracting financial data, calculating risk metrics, detecting and reverse-engineering MCA positions, matching with lender criteria, and generating comprehensive reports with forensics and deal summary tabs.
 
 ## Current State
-**Status**: Fully operational - all core modules implemented with enhanced pipeline including keyword-based analysis, position detection, fraud detection, and forensics reporting.
+**Status**: Fully operational - all core modules implemented with enhanced pipeline including keyword-based analysis, position detection, fraud detection, forensics reporting, leverage metrics, per-bank analysis, and scrubber exclusion reporting.
 
-**Last Updated**: February 5, 2026
+**Last Updated**: February 6, 2026
 
 ## Project Structure
 
@@ -226,6 +226,18 @@ For each detected MCA position, the system calculates:
 The web server runs automatically on port 5000.
 
 ## Recent Changes
+- February 6, 2026: Deal Summary, Monthly Analysis, and Forensics enhancements
+  - Added LEVERAGE section to Deal Summary (Total Outstanding Debt, Leverage Ratio, DTI, DSCR)
+  - Added per-position Holdback % column to position table
+  - Added EXPENSE SUMMARY section (Payroll, Rent, Utilities, Supplies, Total Fixed Expenses)
+  - Added Net Available Cash Flow calculation
+  - Fixed ADB/Payment Ratio using fallback to average_daily_balance from daily_balances DataFrame
+  - Unknown handling: positions without known funding deposit show "Unknown*" with footnote
+  - has_known_funding flag propagated from position_detector through ManualPosition notes to reporter
+  - Monthly Analysis now splits by bank account (PNC/Truist) with per-bank subtotals and combined total
+  - Added SCRUBBER EXCLUSIONS section to Forensics tab showing excluded deposits with date, amount, reason, description
+  - Added deal_summary.py module for leverage and expense calculations
+  - generate_master_report signature extended with backward-compatible per_bank_transactions and excluded_deposits parameters
 - February 5, 2026: Enhanced pipeline merge
   - Added position_detector.py with 4-tier keyword-based MCA position detection
   - Added config/ directory with keywords.json (60+ lender patterns), factor_rates.json, funder_rates_complete.json, lender_aliases.json
