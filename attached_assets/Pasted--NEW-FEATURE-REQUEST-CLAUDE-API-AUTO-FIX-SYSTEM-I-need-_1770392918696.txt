@@ -1,0 +1,205 @@
+⚠️ NEW FEATURE REQUEST - CLAUDE API AUTO-FIX SYSTEM ⚠️
+
+I need you to ADD an auto-fix system that sends poor extractions to Claude API for analysis and correction.
+This is an ADDITION - do NOT modify existing parsers or validation logic.
+
+═══════════════════════════════════════════════════════════════
+                    WHAT YOU WILL CREATE
+═══════════════════════════════════════════════════════════════
+
+✅ CREATE 1 NEW FILE:
+   → core_logic/claude_auto_fix.py
+
+✅ UPDATE 1 FILE (small addition):
+   → app.py - Add auto-fix trigger after validation
+
+═══════════════════════════════════════════════════════════════
+                    WHAT YOU WILL NOT TOUCH
+═══════════════════════════════════════════════════════════════
+
+🚫 DO NOT TOUCH: ocr_engine.py
+🚫 DO NOT TOUCH: bank_parsers.py
+🚫 DO NOT TOUCH: extraction_validator.py
+🚫 DO NOT TOUCH: reporter.py
+🚫 DO NOT TOUCH: risk_engine.py
+🚫 DO NOT TOUCH: position_detector.py
+🚫 DO NOT TOUCH: calculator.py
+🚫 DO NOT TOUCH: scrubber.py
+🚫 DO NOT TOUCH: lender_matcher.py
+🚫 DO NOT TOUCH: deal_input.py
+🚫 DO NOT TOUCH: deal_summary.py
+🚫 DO NOT TOUCH: Any config files
+🚫 DO NOT TOUCH: Any existing parser logic
+
+═══════════════════════════════════════════════════════════════
+              CLAUDE AUTO-FIX SYSTEM REQUIREMENTS
+═══════════════════════════════════════════════════════════════
+
+The new core_logic/claude_auto_fix.py should:
+
+1. TRIGGER CONDITIONS:
+   - Confidence score < 70 (POOR status)
+   - OR confidence score < 85 AND transaction count < 10
+   - OR zero credits AND zero debits extracted
+
+2. WHAT TO SEND TO CLAUDE API:
+   
+   a) First 5000 characters of extracted PDF text
+   b) The quality report (issues found, checks failed)
+   c) Sample of extracted transactions (first 10)
+   d) Bank detected (or "unknown")
+   e) Statement summary if available (beginning/ending balance, stated transaction count)
+
+3. CLAUDE API REQUEST FORMAT:
+
+   Use model: claude-sonnet-4-20250514
+   
+   System prompt:
+   "You are a bank statement parsing expert. Analyze why the extraction failed 
+   and provide specific fixes. Return JSON only."
+   
+   User prompt template:
+   """
+   Bank statement extraction failed quality checks.
+   
+   DETECTED BANK: {bank_name}
+   CONFIDENCE SCORE: {score}/100
+   STATUS: {status}
+   
+   ISSUES FOUND:
+   {issues_list}
+   
+   EXTRACTED TRANSACTIONS (sample):
+   {transaction_sample}
+   
+   RAW TEXT FROM PDF (first 5000 chars):
+{pdf_text}
+   
+   STATEMENT SUMMARY (if available):
+   - Beginning Balance: {beginning_balance}
+   - Ending Balance: {ending_balance}
+   - Stated Transaction Count: {stated_count}
+   - Extracted Transaction Count: {extracted_count}
+   
+   Please analyze and return JSON with:
+   {
+     "diagnosis": "What went wrong with the extraction",
+     "bank_identified": "The actual bank name if you can tell",
+     "recommended_parser": "Which parser should be used (chase/bofa/wells_fargo/citibank/pnc/truist/us_bank/webster/generic)",
+     "transaction_pattern": "Description of the transaction format you see in the text",
+     "date_format": "The date format used (e.g., MM/DD/YY, MM/DD, MMM DD)",
+     "amount_position": "Where amounts appear (end of line, before description, separate columns)",
+     "section_headers": ["List of section headers you see like 'DEPOSITS', 'WITHDRAWALS'"],
+     "sample_parsed_transactions": [
+       {"date": "YYYY-MM-DD", "description": "...", "amount": 123.45, "type": "credit/debit"}
+     ],
+     "confidence": "high/medium/low",
+     "can_auto_fix": true/false,
+     "fix_instructions": "Specific instructions if manual fix needed"
+   }
+   """
+
+4. HANDLE CLAUDE API RESPONSE:
+
+   If can_auto_fix is true AND confidence is "high":
+     - Use recommended_parser to re-extract
+     - Re-run validation
+     - If improved, use new results
+     - Log the fix for review
+   
+   If can_auto_fix is false OR confidence is "low":
+     - Save Claude's analysis to a "needs_manual_review" log
+     - Continue with original (poor) extraction
+     - Add note to Quality Report: "Claude API analyzed - manual review needed"
+
+5. API KEY HANDLING:
+   
+   - Look for ANTHROPIC_API_KEY in environment variables
+   - If not found, skip auto-fix silently (don't crash)
+   - Log: "Claude auto-fix skipped: No API key configured"
+
+6. RATE LIMITING / COST CONTROL:
+   
+   - Maximum 3 API calls per statement (don't loop forever)
+   - Add 2 second delay between retries
+   - Track API calls in the quality report
+
+7. RETURN FORMAT:
+
+   {
+     "auto_fix_attempted": true/false,
+     "api_calls_made": 1,
+     "original_score": 45,
+     "new_score": 87,  # after fix, or None if not improved
+     "improvement": 42,  # points gained
+     "claude_diagnosis": "The statement was detected as PNC but is actually Chase...",
+     "action_taken": "Re-extracted using Chase parser",
+     "status": "FIXED" / "IMPROVED" / "UNCHANGED" / "MANUAL_REVIEW_NEEDED"
+   }
+
+═══════════════════════════════════════════════════════════════
+                    APP.PY UPDATE
+═══════════════════════════════════════════════════════════════
+
+Add auto-fix trigger in the pipeline AFTER validation, BEFORE report generation:
+```python
+# After validation runs and quality_report is generated:
+
+if quality_report['status'] == 'POOR' or quality_report['confidence_score'] < 70:
+    from core_logic.claude_auto_fix import attempt_auto_fix
+    
+    auto_fix_result = attempt_auto_fix(
+        pdf_text=extracted_text,
+        transactions=all_transactions,
+        quality_report=quality_report,
+        bank_name=detected_bank,
+        statement_info=statement_metadata  # beginning/ending balance if available
+    )
+    
+    if auto_fix_result['status'] in ['FIXED', 'IMPROVED']:
+        # Use the improved transactions
+        all_transactions = auto_fix_result.get('new_transactions', all_transactions)
+        # Re-run validation with new data
+        quality_report = validate_extraction(all_transactions, statement_metadata)
+        quality_report['auto_fix_applied'] = True
+        quality_report['auto_fix_details'] = auto_fix_result
+```
+
+═══════════════════════════════════════════════════════════════
+                    LOGGING REQUIREMENTS
+═══════════════════════════════════════════════════════════════
+
+Create a log file: logs/claude_auto_fix.log
+
+Log format:
+[2026-02-06 15:45:23] Statement: bofa_december_2022.pdf
+[2026-02-06 15:45:23] Original Score: 45/100 (POOR)
+[2026-02-06 15:45:25] Claude API called (attempt 1/3)
+[2026-02-06 15:45:27] Diagnosis: Wrong bank detected, statement is Chase not PNC
+[2026-02-06 15:45:27] Action: Re-extracting with Chase parser
+[2026-02-06 15:45:29] New Score: 89/100 (GOOD)
+[2026-02-06 15:45:29] Status: FIXED (+44 points)
+
+═══════════════════════════════════════════════════════════════
+                    ERROR HANDLING
+═══════════════════════════════════════════════════════════════
+
+Handle these gracefully (don't crash the pipeline):
+- No API key configured → Skip auto-fix, log warning
+- API rate limit hit → Skip auto-fix, log warning  
+- API timeout → Retry once, then skip
+- Invalid JSON response → Log error, skip auto-fix
+- Parser recommended doesn't exist → Use generic parser
+
+═══════════════════════════════════════════════════════════════
+                    CONFIRMATION REQUIRED
+═══════════════════════════════════════════════════════════════
+
+Before you make ANY changes, please confirm:
+
+1. "I will ONLY create core_logic/claude_auto_fix.py"
+2. "I will ONLY add the auto-fix trigger to app.py (after validation)"
+3. "I will NOT modify any parser logic, validator, or other files"
+4. "I understand the API key must be in environment variables"
+
+Then show me the claude_auto_fix.py code BEFORE applying it
