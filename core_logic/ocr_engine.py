@@ -36,6 +36,7 @@ except ImportError:
 BANK_PATTERNS = {
     'pnc': [r'PNC Bank', r'PNC BANK', r'pnc\.com'],
     'truist': [r'Truist', r'TRUIST', r'BB&T', r'SunTrust'],
+    'chase': [r'JPMorgan Chase', r'chase\.com', r'JPMORGAN\s+CHASE', r'Chase Business'],
     'bofa': [r'Bank of America', r'BANK OF AMERICA', r'bankofamerica\.com', r'Business Advantage'],
     'wells_fargo': [r'Wells Fargo', r'WELLS FARGO', r'wellsfargo\.com', r'Optimize Business'],
     'citibank': [r'CITIBANK', r'CitiBusiness', r'Citibank,?\s+N\.?A\.?', r'Citi CBO'],
@@ -50,7 +51,6 @@ BANK_PATTERNS = {
     'key_bank': [r'KeyBank', r'KEY BANK'],
     'santander': [r'Santander', r'SANTANDER'],
     'bmo': [r'BMO Harris', r'BMO HARRIS'],
-    'chase': [r'JPMorgan Chase', r'chase\.com', r'JPMORGAN', r'CHASE', r'Chase Business'],
 }
 
 DATE_PATTERNS = [
@@ -263,13 +263,20 @@ def validate_extraction(transactions: list, opening_bal: float, closing_bal: flo
 def detect_bank_format(text: str) -> str:
     """
     Detect which bank format the statement belongs to.
-    Uses a two-pass approach:
-      1. Check ONLY the header/letterhead area (first ~1500 chars) to avoid
-         false matches from transaction descriptions mentioning other banks.
-      2. Fall back to full-text scan only if no match found in the header.
+    Uses a three-pass approach:
+      1. Check the letterhead (first ~500 chars) for the issuing bank name.
+      2. Check the broader header (first ~1500 chars) as fallback.
+      3. Fall back to full-text scan only if no match found in header.
+    Letterhead gets priority to avoid false matches from transaction
+    descriptions that mention other banks (e.g., wire transfers via BofA).
     """
-    header_text = text[:1500]
+    letterhead = text[:500]
+    for bank, patterns in BANK_PATTERNS.items():
+        for pattern in patterns:
+            if re.search(pattern, letterhead, re.IGNORECASE):
+                return bank
 
+    header_text = text[:1500]
     for bank, patterns in BANK_PATTERNS.items():
         for pattern in patterns:
             if re.search(pattern, header_text, re.IGNORECASE):

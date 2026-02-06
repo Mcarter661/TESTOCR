@@ -209,8 +209,8 @@ def detect_bank(text: str) -> str:
 
 def extract_year_from_text(text: str) -> int:
     """Extract statement year from text for date parsing."""
-    # Look for statement period patterns
     patterns = [
+        r'(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+(\d{4})\s+through\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+(\d{4})',
         r'(?:for|period|from)\s+\w+\s+\d{1,2},?\s+(\d{4})',
         r'(\d{4})\s+to\s+\w+\s+\d{1,2}',
         r'Statement\s+Period[:\s]+.*?(\d{4})',
@@ -220,7 +220,10 @@ def extract_year_from_text(text: str) -> int:
     for pattern in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
-            year_str = match.group(1) if len(match.groups()) == 1 else match.group(2)
+            groups = match.groups()
+            if len(groups) == 2 and all(g and g.isdigit() and 2000 <= int(g) <= 2100 for g in groups):
+                return int(groups[1])
+            year_str = groups[-1] if len(groups) > 1 else groups[0]
             try:
                 year = int(year_str)
                 if 2000 <= year <= 2100:
@@ -237,7 +240,7 @@ def categorize_transaction(description: str) -> str:
     
     if any(kw in desc_upper for kw in ['ACH', 'ELECTRONIC', 'DIRECT DEP', 'DIRECT DEPOSIT']):
         return 'ACH'
-    if any(kw in desc_upper for kw in ['WIRE', 'WIRE TRANSFER', 'WIRE IN', 'WIRE OUT']):
+    if any(kw in desc_upper for kw in ['WIRE', 'WIRE TRANSFER', 'WIRE IN', 'WIRE OUT', 'FEDWIRE']):
         return 'WIRE'
     if any(kw in desc_upper for kw in ['CHECK', 'CHK', 'CHECK NO']):
         return 'CHECK'
@@ -283,14 +286,14 @@ def extract_transactions_chase(text: str, tables: List[List] = None) -> List[Dic
     current_section = None
     section_is_credit = False
     
-    credit_headers = ['DEPOSITS AND ADDITIONS']
+    credit_headers = ['DEPOSITS AND ADDITIONS', 'DEPOSITS AND CREDITS']
     debit_headers = ['CHECKS PAID', 'ELECTRONIC WITHDRAWALS', 'ATM & DEBIT CARD WITHDRAWALS',
-                     'OTHER WITHDRAWALS', 'FEES', 'SERVICE CHARGES']
-    stop_headers = ['DAILY ENDING BALANCE', 'DAILY LEDGER BALANCE', 'SERVICE CHARGE SUMMARY',
-                    'TRANSACTION DETAIL', 'OVERDRAFT PROTECTION']
+                     'OTHER WITHDRAWALS', 'WITHDRAWALS AND DEBITS', 'FEES', 'SERVICE CHARGES']
+    stop_headers = ['DAILY ENDING BALANCE', 'DAILY LEDGER BALANCE', 'DAILY BALANCE',
+                    'SERVICE CHARGE SUMMARY', 'TRANSACTION DETAIL', 'OVERDRAFT PROTECTION']
     
     skip_patterns = re.compile(
-        r'^(Total |DATE|CHECK NO|If you see|not the original|\*|•|Page |\d+ items)',
+        r'^(Total |DATE$|CHECK NO|If you see|not the original|\*|•|Page |\d+ items|Ledger |Number |Opening |Ending |Summary|Commercial |Account Number|Please examine)',
         re.IGNORECASE
     )
     
@@ -311,15 +314,16 @@ def extract_transactions_chase(text: str, tables: List[List] = None) -> List[Dic
             continue
         
         matched_section = False
+        is_summary_line = bool(re.search(r'\d+\s+\$[\d,]+\.\d{2}', line))
         for header in debit_headers:
-            if header in line_upper and not line_upper.startswith('TOTAL'):
+            if header in line_upper and not line_upper.startswith('TOTAL') and not is_summary_line:
                 current_section = 'debit'
                 section_is_credit = False
                 matched_section = True
                 break
         if not matched_section:
             for header in credit_headers:
-                if header in line_upper and not line_upper.startswith('TOTAL'):
+                if header in line_upper and not line_upper.startswith('TOTAL') and not is_summary_line:
                     current_section = 'credit'
                     section_is_credit = True
                     matched_section = True
@@ -385,9 +389,15 @@ def extract_transactions_chase(text: str, tables: List[List] = None) -> List[Dic
         
         if current_section and not re.match(r'^\d{2}/\d{2}', line):
             if transactions and len(line) > 5:
-                prev_desc = transactions[-1]['description']
-                if len(prev_desc) < 250:
-                    transactions[-1]['description'] = f"{prev_desc} {line}"[:300]
+                jpm_continuation = any(kw in line.upper() for kw in [
+                    'ENTRY DESCR:', 'IND ID:', 'IND NAME:', 'TRN:', 'TRACE#',
+                    'IMAD:', 'YOUR REF:', 'ORIG CO', 'ORIG ID:', 'EED:',
+                    'SEC:', 'DIRECT DEPOSIT', 'CO ENTRY'
+                ])
+                if jpm_continuation or not re.search(r'[\d,]+\.\d{2}', line):
+                    prev_desc = transactions[-1]['description']
+                    if len(prev_desc) < 250:
+                        transactions[-1]['description'] = f"{prev_desc} {line}"[:300]
     
     return transactions
 

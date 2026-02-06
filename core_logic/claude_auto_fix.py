@@ -294,6 +294,42 @@ def attempt_auto_fix(
 
         new_transactions = _re_extract_with_parser(pdf_path, recommended_parser)
 
+        claude_sample = claude_response.get('sample_parsed_transactions', [])
+        if new_transactions and len(new_transactions) > 0 and claude_sample:
+            from core_logic.extraction_validator import validate_extraction
+            test_quality = validate_extraction(
+                transactions=new_transactions,
+                bank_name=recommended_parser,
+                beginning_balance=(statement_info or {}).get('opening_balance'),
+                ending_balance=(statement_info or {}).get('closing_balance'),
+                statement_start=(statement_info or {}).get('statement_period_start'),
+                statement_end=(statement_info or {}).get('statement_period_end'),
+            )
+            test_score = test_quality.get('confidence_score', 0)
+            if test_score <= score and len(claude_sample) >= 2:
+                _log(f"Parser re-extraction didn't help (score {test_score}), using Claude's parsed transactions")
+                claude_txns = []
+                for ct in claude_sample:
+                    amt = ct.get('amount', 0)
+                    txn_type = ct.get('type', 'debit')
+                    if txn_type == 'debit' and amt > 0:
+                        amt = -amt
+                    elif txn_type == 'credit' and amt < 0:
+                        amt = abs(amt)
+                    claude_txns.append({
+                        'date': ct.get('date', ''),
+                        'description': ct.get('description', '')[:300],
+                        'amount': amt,
+                        'debit': abs(amt) if amt < 0 else 0,
+                        'credit': amt if amt > 0 else 0,
+                        'balance': None,
+                        'category': ct.get('category', 'OTHER'),
+                        'raw_line': ct.get('description', '')[:300],
+                    })
+                if claude_txns:
+                    new_transactions = claude_txns
+                    result['action_taken'] = 'Used Claude-parsed transactions directly'
+
         if new_transactions and len(new_transactions) > 0:
             from core_logic.extraction_validator import validate_extraction
 
