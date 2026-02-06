@@ -161,7 +161,7 @@ def generate_deal_summary(deal: DealInput, risk_data: dict = None, lender_matche
             "holdback_percent": round(pos_holdback_pct, 1),
             "is_buyout": pos.is_buyout,
             "notes": pos.notes,
-            "has_known_funding": pos.notes != "estimated" if hasattr(pos, 'notes') else True,
+            "has_known_funding": pos.notes != "no_known_funding",
         })
 
     # Days since last funding

@@ -187,6 +187,7 @@ def _build_deal_input(scrubbed_data, position_data, risk_profile, account_info, 
 
     pos_list = position_data.get('positions', []) if position_data else []
     for i, p in enumerate(pos_list):
+        has_funding = p.get('has_known_funding', True)
         deal.positions.append(ManualPosition(
             position_number=i + 1,
             funder_name=p.get('lender_name', 'Unknown'),
@@ -195,6 +196,7 @@ def _build_deal_input(scrubbed_data, position_data, risk_profile, account_info, 
             payment_amount=float(p.get('payment_amount', 0) or 0),
             payment_frequency=p.get('payment_frequency', 'daily'),
             factor_rate=float(p.get('estimated_factor_rate', 1.42) or 1.42),
+            notes="no_known_funding" if not has_funding else "",
         ))
 
     max_funding = deal_metrics.get('max_recommended_funding', 0) if deal_metrics else 0
@@ -463,6 +465,7 @@ def run_combined_pipeline(pdf_paths):
             fraud_flags=all_fraud_flags,
             deal_summary=deal_summary,
             per_bank_transactions=per_file_transactions,
+            excluded_deposits=scrubbed_data.get('excluded_transactions', []),
         )
 
         if report_path:
@@ -686,6 +689,7 @@ def run_pipeline(pdf_path):
             output_dir=OUTPUT_FOLDER,
             fraud_flags=ocr_data.get('fraud_flags', []),
             deal_summary=deal_summary,
+            excluded_deposits=scrubbed_data.get('excluded_transactions', []),
         )
         
         if report_path:

@@ -250,53 +250,141 @@ def add_transactions_sheet(workbook: xlsxwriter.Workbook, transactions: List[Dic
             sheet.write(row, 6, balance, formats['currency'])
 
 
-def add_monthly_analysis_sheet(workbook: xlsxwriter.Workbook, monthly_data: pd.DataFrame, formats: Dict) -> None:
+def add_monthly_analysis_sheet(workbook: xlsxwriter.Workbook, monthly_data: pd.DataFrame, formats: Dict, per_bank_transactions: Optional[Dict] = None) -> None:
     """
     Add monthly breakdown analysis sheet.
+    If per_bank_transactions is provided with multiple banks, shows per-bank breakdown
+    followed by combined totals.
     """
     sheet = workbook.add_worksheet('Monthly Analysis')
-    
+
     sheet.set_column('A:A', 15)
     sheet.set_column('B:B', 15)
     sheet.set_column('C:C', 15)
     sheet.set_column('D:D', 15)
     sheet.set_column('E:E', 15)
-    
-    headers = ['Month', 'Deposits', 'Withdrawals', 'Net', 'Change %']
-    for col, header in enumerate(headers):
-        sheet.write(0, col, header, formats['header'])
-    
+
+    row = 0
+    multi_bank = per_bank_transactions and len(per_bank_transactions) > 1
+
+    if multi_bank:
+        for bank_name, txns in per_bank_transactions.items():
+            bank_monthly = {}
+            for txn in txns:
+                date_str = txn.get('date', '')
+                if not date_str:
+                    continue
+                try:
+                    dt = datetime.strptime(str(date_str), '%Y-%m-%d')
+                    month_key = dt.strftime('%Y-%m')
+                except (ValueError, TypeError):
+                    parts = str(date_str).split('-')
+                    month_key = f"{parts[0]}-{parts[1]}" if len(parts) >= 2 else str(date_str)
+
+                if month_key not in bank_monthly:
+                    bank_monthly[month_key] = {'deposits': 0, 'withdrawals': 0}
+
+                amount = float(txn.get('amount', 0) or 0)
+                debit = float(txn.get('debit', 0) or 0)
+                credit = float(txn.get('credit', 0) or 0)
+
+                if credit > 0:
+                    bank_monthly[month_key]['deposits'] += credit
+                elif debit > 0:
+                    bank_monthly[month_key]['withdrawals'] += debit
+                elif amount > 0:
+                    bank_monthly[month_key]['deposits'] += amount
+                elif amount < 0:
+                    bank_monthly[month_key]['withdrawals'] += abs(amount)
+
+            sheet.merge_range(row, 0, row, 4, bank_name, formats['subheader'])
+            row += 1
+            headers = ['Month', 'Deposits', 'Withdrawals', 'Net', 'Change %']
+            for col, header in enumerate(headers):
+                sheet.write(row, col, header, formats['header'])
+            row += 1
+
+            total_dep = 0
+            total_wd = 0
+            prev_dep = None
+            for month_key in sorted(bank_monthly.keys()):
+                vals = bank_monthly[month_key]
+                dep = vals['deposits']
+                wd = vals['withdrawals']
+                net = dep - wd
+                total_dep += dep
+                total_wd += wd
+
+                sheet.write(row, 0, month_key, formats['text'])
+                sheet.write(row, 1, dep, formats['currency'])
+                sheet.write(row, 2, wd, formats['currency'])
+                net_fmt = formats['currency'] if net >= 0 else formats['currency_negative']
+                sheet.write(row, 3, net, net_fmt)
+
+                if prev_dep is not None and prev_dep > 0:
+                    change = (dep - prev_dep) / prev_dep
+                else:
+                    change = 0
+                sheet.write(row, 4, change, formats['percent'])
+                prev_dep = dep
+                row += 1
+
+            total_net = total_dep - total_wd
+            sheet.write(row, 0, "Subtotal", formats['subheader'])
+            sheet.write(row, 1, total_dep, formats['currency'])
+            sheet.write(row, 2, total_wd, formats['currency'])
+            sub_fmt = formats['currency'] if total_net >= 0 else formats['currency_negative']
+            sheet.write(row, 3, total_net, sub_fmt)
+            sheet.write(row, 4, "", formats['subheader'])
+            row += 2
+
+        sheet.merge_range(row, 0, row, 4, "COMBINED TOTAL", formats['subheader'])
+        row += 1
+        headers = ['Month', 'Deposits', 'Withdrawals', 'Net', 'Change %']
+        for col, header in enumerate(headers):
+            sheet.write(row, col, header, formats['header'])
+        row += 1
+
+    if not multi_bank:
+        headers = ['Month', 'Deposits', 'Withdrawals', 'Net', 'Change %']
+        for col, header in enumerate(headers):
+            sheet.write(row, col, header, formats['header'])
+        row += 1
+
+    data_start_row = row
     if monthly_data is not None and not monthly_data.empty:
-        for row, (_, data) in enumerate(monthly_data.iterrows(), start=1):
+        for _, data in monthly_data.iterrows():
             sheet.write(row, 0, str(data.get('month', '')), formats['text'])
             sheet.write(row, 1, data.get('deposits', 0), formats['currency'])
             sheet.write(row, 2, data.get('withdrawals', 0), formats['currency'])
-            
+
             net = data.get('net', 0)
             net_format = formats['currency'] if net >= 0 else formats['currency_negative']
             sheet.write(row, 3, net, net_format)
-            
+
             change = data.get('deposit_change', 0) / 100 if 'deposit_change' in data else 0
             change_format = formats['good'] if change > 0 else (formats['bad'] if change < -0.1 else formats['text'])
             sheet.write(row, 4, change, formats['percent'])
-        
-        if len(monthly_data) >= 2:
+            row += 1
+
+        data_row_count = row - data_start_row
+        if data_row_count >= 2:
             chart = workbook.add_chart({'type': 'column'})
             chart.add_series({
                 'name': 'Deposits',
-                'categories': ['Monthly Analysis', 1, 0, len(monthly_data), 0],
-                'values': ['Monthly Analysis', 1, 1, len(monthly_data), 1],
+                'categories': ['Monthly Analysis', data_start_row, 0, row - 1, 0],
+                'values': ['Monthly Analysis', data_start_row, 1, row - 1, 1],
                 'fill': {'color': '#4CAF50'},
             })
             chart.add_series({
                 'name': 'Withdrawals',
-                'categories': ['Monthly Analysis', 1, 0, len(monthly_data), 0],
-                'values': ['Monthly Analysis', 1, 2, len(monthly_data), 2],
+                'categories': ['Monthly Analysis', data_start_row, 0, row - 1, 0],
+                'values': ['Monthly Analysis', data_start_row, 2, row - 1, 2],
                 'fill': {'color': '#f44336'},
             })
             chart.set_title({'name': 'Monthly Cash Flow'})
             chart.set_style(10)
-            sheet.insert_chart('G2', chart, {'x_scale': 1.5, 'y_scale': 1.2})
+            sheet.insert_chart(f'G{data_start_row + 1}', chart, {'x_scale': 1.5, 'y_scale': 1.2})
 
 
 def add_risk_analysis_sheet(workbook: xlsxwriter.Workbook, risk_profile: Dict, formats: Dict) -> None:
@@ -715,7 +803,7 @@ def add_red_flags_sheet(workbook: xlsxwriter.Workbook, risk_profile: Dict, forma
         row += 1
 
 
-def _add_forensics_tab(workbook: xlsxwriter.Workbook, formats: Dict, risk: Dict, fraud_flags: List) -> None:
+def _add_forensics_tab(workbook: xlsxwriter.Workbook, formats: Dict, risk: Dict, fraud_flags: List, excluded_deposits: Optional[List] = None) -> None:
     ws = workbook.add_worksheet("In-House Forensics")
     ws.set_column("A:A", 28)
     ws.set_column("B:B", 14)
@@ -804,6 +892,22 @@ def _add_forensics_tab(workbook: xlsxwriter.Workbook, formats: Dict, risk: Dict,
             ws.write(row, 1, total, formats['currency'])
             row += 1
 
+    if excluded_deposits:
+        row += 2
+        ws.write(row, 0, "SCRUBBER EXCLUSIONS", formats['section'])
+        row += 1
+        ws.write(row, 0, "Date", formats['header'])
+        ws.write(row, 1, "Amount", formats['header'])
+        ws.write(row, 2, "Reason", formats['header'])
+        ws.write(row, 3, "Description", formats['header_left'])
+        row += 1
+        for excl in excluded_deposits:
+            ws.write(row, 0, excl.get("date", ""), formats['value'])
+            ws.write(row, 1, excl.get("amount", 0), formats['currency'])
+            ws.write(row, 2, excl.get("reason", ""), formats['value'])
+            ws.write(row, 3, excl.get("description", ""), formats['wrap'])
+            row += 1
+
 
 def _add_deal_summary_tab(workbook: xlsxwriter.Workbook, formats: Dict, summary: Dict) -> None:
     ws = workbook.add_worksheet("Deal Summary")
@@ -811,7 +915,7 @@ def _add_deal_summary_tab(workbook: xlsxwriter.Workbook, formats: Dict, summary:
     ws.set_column("B:B", 20)
     ws.set_column("C:C", 24)
     ws.set_column("D:D", 18)
-    ws.set_column("E:H", 14)
+    ws.set_column("E:I", 14)
 
     row = 0
     ws.write(row, 0, "DEAL SUMMARY - SPEC SHEET", formats['title'])
@@ -886,25 +990,83 @@ def _add_deal_summary_tab(workbook: xlsxwriter.Workbook, formats: Dict, summary:
     row += 1
 
     positions = summary.get("positions", [])
+    has_unknown_funding = False
     if positions:
         row += 1
-        pos_headers = ["#", "Funder", "Payment", "Freq", "Funded Amt", "Remaining", "Paid In %", "Est. Payoff"]
+        pos_headers = ["#", "Funder", "Payment", "Freq", "Holdback %", "Funded Amt", "Remaining", "Paid In %", "Est. Payoff"]
         for col, h in enumerate(pos_headers):
             ws.write(row, col, h, formats['header'])
         row += 1
         for pos in positions:
+            known = pos.get("has_known_funding", True)
+            if not known:
+                has_unknown_funding = True
             ws.write(row, 0, pos.get("position", ""), formats['number'])
             ws.write(row, 1, pos.get("funder", ""), formats['value'])
             ws.write(row, 2, pos.get("payment", 0), formats['currency'])
             ws.write(row, 3, pos.get("frequency", ""), formats['value'])
-            ws.write(row, 4, pos.get("funded_amount", 0), formats['currency'])
-            ws.write(row, 5, pos.get("remaining", 0), formats['currency'])
-            pct = pos.get("paid_in_pct", 0)
-            ws.write(row, 6, f"{pct:.1f}%", formats['pass'] if pct > 50 else formats['warn'])
-            ws.write(row, 7, pos.get("est_payoff", ""), formats['value'])
+            hb_val = pos.get("holdback_percent", 0)
+            ws.write(row, 4, f"{hb_val:.1f}%", formats['value'])
+            if known:
+                ws.write(row, 5, pos.get("funded_amount", 0), formats['currency'])
+                ws.write(row, 6, pos.get("remaining", 0), formats['currency'])
+                pct = pos.get("paid_in_pct", 0)
+                ws.write(row, 7, f"{pct:.1f}%", formats['pass'] if pct > 50 else formats['warn'])
+                ws.write(row, 8, pos.get("est_payoff", ""), formats['value'])
+            else:
+                ws.write(row, 5, "Unknown*", formats['warn'])
+                ws.write(row, 6, "Unknown*", formats['warn'])
+                ws.write(row, 7, "Unknown*", formats['warn'])
+                ws.write(row, 8, "Unknown*", formats['warn'])
+            row += 1
+        if has_unknown_funding:
+            ws.write(row, 0, "* Estimated values - funding deposit not found in statement", formats['wrap'])
             row += 1
 
     row += 1
+    ws.write(row, 0, "LEVERAGE", formats['section'])
+    row += 1
+    ws.write(row, 0, "Total Outstanding Debt", formats['label'])
+    ws.write(row, 1, summary.get("total_outstanding_debt", 0), formats['currency'])
+    row += 1
+    ws.write(row, 0, "Leverage Ratio", formats['label'])
+    lev_val = summary.get("leverage_ratio", 0)
+    ws.write(row, 1, f"{lev_val:.2f}x", formats['value'])
+    row += 1
+    ws.write(row, 0, "DTI Ratio", formats['label'])
+    dti_val = summary.get("dti_ratio", 0)
+    dti_fmt = formats['fail'] if dti_val > 50 else formats['warn'] if dti_val > 35 else formats['value']
+    ws.write(row, 1, f"{dti_val:.1f}%", dti_fmt)
+    row += 1
+    ws.write(row, 0, "DSCR", formats['label'])
+    dscr_val = summary.get("dscr", 0)
+    dscr_fmt = formats['pass'] if dscr_val >= 1.25 else formats['fail'] if dscr_val < 1.0 else formats['warn']
+    ws.write(row, 1, f"{dscr_val:.2f}x", dscr_fmt)
+
+    row += 2
+    ws.write(row, 0, "EXPENSE SUMMARY", formats['section'])
+    row += 1
+    ws.write(row, 0, "Payroll", formats['label'])
+    ws.write(row, 1, summary.get("payroll_monthly", 0), formats['currency'])
+    row += 1
+    ws.write(row, 0, "Rent", formats['label'])
+    ws.write(row, 1, summary.get("rent_monthly", 0), formats['currency'])
+    row += 1
+    ws.write(row, 0, "Utilities", formats['label'])
+    ws.write(row, 1, summary.get("utilities_monthly", 0), formats['currency'])
+    row += 1
+    ws.write(row, 0, "Supplies", formats['label'])
+    ws.write(row, 1, summary.get("supplies_monthly", 0), formats['currency'])
+    row += 1
+    ws.write(row, 0, "Total Fixed Expenses", formats['label'])
+    ws.write(row, 1, summary.get("total_fixed_expenses", 0), formats['currency_bold'])
+    row += 1
+    ws.write(row, 0, "Net Available Cash Flow", formats['label'])
+    nacf = summary.get("net_available_cash_flow", 0)
+    nacf_fmt = formats['fail'] if nacf < 0 else formats['currency_bold']
+    ws.write(row, 1, nacf, nacf_fmt)
+
+    row += 2
     ws.write(row, 0, "PROPOSED DEAL", formats['section'])
     row += 1
     ws.write(row, 0, "Funding Amount", formats['label'])
@@ -1022,7 +1184,9 @@ def generate_master_report(
     lender_matches: List[Dict],
     output_dir: str = "output_reports",
     fraud_flags: Optional[List] = None,
-    deal_summary: Optional[Dict] = None
+    deal_summary: Optional[Dict] = None,
+    per_bank_transactions: Optional[Dict] = None,
+    excluded_deposits: Optional[List] = None
 ) -> str:
     """
     Main function to generate the complete Master Excel report.
@@ -1050,7 +1214,7 @@ def generate_master_report(
         add_transactions_sheet(workbook, transactions, formats)
     
     if monthly_data is not None and not monthly_data.empty:
-        add_monthly_analysis_sheet(workbook, monthly_data, formats)
+        add_monthly_analysis_sheet(workbook, monthly_data, formats, per_bank_transactions=per_bank_transactions)
     
     if risk_profile:
         add_risk_analysis_sheet(workbook, risk_profile, formats)
@@ -1097,7 +1261,7 @@ def generate_master_report(
                 'red_flags': enhanced_risk.get('red_flags', flat_risk.get('red_flags', [])),
                 'expenses_by_category': enhanced_risk.get('expenses_by_category', flat_risk.get('expenses_by_category', {})),
             })
-        _add_forensics_tab(workbook, formats, flat_risk, fraud_flags or [])
+        _add_forensics_tab(workbook, formats, flat_risk, fraud_flags or [], excluded_deposits=excluded_deposits)
     
     if lender_matches:
         add_lender_matches_sheet(workbook, lender_matches, formats)
