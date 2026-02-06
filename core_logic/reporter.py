@@ -1176,6 +1176,83 @@ def generate_json_output(full_data: Dict, output_path: str) -> None:
         json.dump(full_data, f, indent=2, default=json_serializer)
 
 
+def _add_quality_report_tab(workbook, formats: Dict, quality_report: Dict) -> None:
+    ws = workbook.add_worksheet("Quality Report")
+    ws.set_column("A:A", 18)
+    ws.set_column("B:B", 90)
+    ws.set_column("C:C", 30)
+
+    row = 0
+    ws.write(row, 0, "EXTRACTION QUALITY REPORT", formats['title'])
+    row += 2
+
+    score = quality_report.get('confidence_score', 0)
+    status = quality_report.get('status', 'UNKNOWN')
+
+    score_fmt = formats['pass'] if score >= 85 else formats['warn'] if score >= 70 else formats['fail']
+    ws.write(row, 0, "Confidence Score", formats['section'])
+    ws.write(row, 1, f"{score} / 100", score_fmt)
+    row += 1
+
+    status_fmt = formats['pass'] if status == 'GOOD' else formats['warn'] if status == 'NEEDS_REVIEW' else formats['fail']
+    ws.write(row, 0, "Status", formats['section'])
+    ws.write(row, 1, status, status_fmt)
+    row += 2
+
+    ws.write(row, 0, "CHECKS PASSED", formats['section'])
+    ws.write(row, 1, "", formats['section'])
+    row += 1
+    for item in quality_report.get('checks_passed', []):
+        ws.write(row, 0, "\u2713", formats['pass'])
+        ws.write(row, 1, item, formats['value'])
+        row += 1
+
+    row += 1
+    issues = quality_report.get('issues_found', [])
+    ws.write(row, 0, "ISSUES FOUND", formats['section'])
+    ws.write(row, 1, f"({len(issues)} issue{'s' if len(issues) != 1 else ''})", formats['section'])
+    row += 1
+    if issues:
+        for item in issues:
+            ws.write(row, 0, "\u2717", formats['fail'])
+            ws.write(row, 1, item, formats['value'])
+            row += 1
+    else:
+        ws.write(row, 0, "", formats['value'])
+        ws.write(row, 1, "No issues detected", formats['pass'])
+        row += 1
+
+    row += 1
+    dupes = quality_report.get('potential_duplicates', [])
+    ws.write(row, 0, "POTENTIAL DUPLICATES", formats['section'])
+    ws.write(row, 1, f"({len(dupes)} pair{'s' if len(dupes) != 1 else ''})", formats['section'])
+    row += 1
+    if dupes:
+        ws.write(row, 0, "Date", formats['header'])
+        ws.write(row, 1, "Descriptions", formats['header'])
+        ws.write(row, 2, "Amount", formats['header'])
+        row += 1
+        for d in dupes[:50]:
+            ws.write(row, 0, str(d.get('date', '')), formats['value'])
+            desc_text = " vs. ".join(d.get('descriptions', []))
+            ws.write(row, 1, desc_text, formats['wrap'])
+            amt = d.get('amount', 0)
+            ws.write(row, 2, amt, formats['currency'])
+            row += 1
+    else:
+        ws.write(row, 0, "", formats['value'])
+        ws.write(row, 1, "No suspicious duplicates found", formats['pass'])
+        row += 1
+
+    row += 1
+    ws.write(row, 0, "RECOMMENDATION", formats['section'])
+    ws.write(row, 1, "", formats['section'])
+    row += 1
+    rec = quality_report.get('recommendation', '')
+    ws.write(row, 0, "", formats['value'])
+    ws.write(row, 1, rec, formats['wrap'])
+
+
 def generate_master_report(
     summary_data: Dict,
     transactions: List[Dict],
@@ -1186,7 +1263,8 @@ def generate_master_report(
     fraud_flags: Optional[List] = None,
     deal_summary: Optional[Dict] = None,
     per_bank_transactions: Optional[Dict] = None,
-    excluded_deposits: Optional[List] = None
+    excluded_deposits: Optional[List] = None,
+    quality_report: Optional[Dict] = None
 ) -> str:
     """
     Main function to generate the complete Master Excel report.
@@ -1268,6 +1346,9 @@ def generate_master_report(
     
     if deal_summary:
         _add_deal_summary_tab(workbook, formats, deal_summary)
+    
+    if quality_report:
+        _add_quality_report_tab(workbook, formats, quality_report)
     
     workbook.close()
     

@@ -21,6 +21,7 @@ from core_logic.position_detector import detect_positions
 from core_logic.calculator import calculate_full_deal_metrics, calculate_deal_summary
 from core_logic.deal_input import DealInput, MonthlyData, ManualPosition
 from core_logic.deal_summary import generate_deal_summary, DealSummary
+from core_logic.extraction_validator import validate_extraction
 
 CONFIG_DIR = 'config'
 
@@ -303,6 +304,24 @@ def run_combined_pipeline(pdf_paths):
         
         all_transactions.sort(key=lambda x: x.get('date', ''))
         
+        quality_report = validate_extraction(
+            transactions=all_transactions,
+            bank_name=bank_str,
+            beginning_balance=all_account_info.get('opening_balance'),
+            ending_balance=all_account_info.get('closing_balance'),
+            statement_start=all_account_info.get('statement_period_start'),
+            statement_end=all_account_info.get('statement_period_end'),
+        )
+        qr_status = quality_report.get('status', 'UNKNOWN')
+        qr_score = quality_report.get('confidence_score', 0)
+        qr_issues = len(quality_report.get('issues_found', []))
+        qr_dupes = len(quality_report.get('potential_duplicates', []))
+        result['steps'].append({
+            'name': 'Extraction Validation',
+            'status': 'complete',
+            'message': f'Quality: {qr_status} ({qr_score}/100), {qr_issues} issue(s), {qr_dupes} potential duplicate(s)'
+        })
+        
         scrubbed_data = scrub_transactions(all_transactions, keywords=keywords if keywords else None)
         
         if scrubbed_data and scrubbed_data.get('transactions'):
@@ -466,6 +485,7 @@ def run_combined_pipeline(pdf_paths):
             deal_summary=deal_summary,
             per_bank_transactions=per_file_transactions,
             excluded_deposits=scrubbed_data.get('excluded_transactions', []),
+            quality_report=quality_report,
         )
 
         if report_path:

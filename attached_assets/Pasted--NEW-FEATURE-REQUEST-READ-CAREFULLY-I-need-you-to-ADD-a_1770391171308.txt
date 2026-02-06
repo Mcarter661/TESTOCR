@@ -1,0 +1,128 @@
+⚠️ NEW FEATURE REQUEST - READ CAREFULLY ⚠️
+
+I need you to ADD a new validation/quality check system. 
+This is an ADDITION - do NOT modify existing parsers or logic.
+
+═══════════════════════════════════════════════════════════════
+                    WHAT YOU WILL CREATE
+═══════════════════════════════════════════════════════════════
+
+✅ CREATE 1 NEW FILE:
+   → core_logic/extraction_validator.py
+
+✅ UPDATE 1 FILE (minor addition only):
+   → reporter.py - Add one new tab called "Quality Report"
+
+═══════════════════════════════════════════════════════════════
+                    WHAT YOU WILL NOT TOUCH
+═══════════════════════════════════════════════════════════════
+
+🚫 DO NOT TOUCH: ocr_engine.py
+🚫 DO NOT TOUCH: bank_parsers.py
+🚫 DO NOT TOUCH: main.py
+🚫 DO NOT TOUCH: risk_engine.py
+🚫 DO NOT TOUCH: position_detector.py
+🚫 DO NOT TOUCH: calculator.py
+🚫 DO NOT TOUCH: scrubber.py
+🚫 DO NOT TOUCH: lender_matcher.py
+🚫 DO NOT TOUCH: deal_input.py
+🚫 DO NOT TOUCH: deal_summary.py
+🚫 DO NOT TOUCH: Any config files
+🚫 DO NOT TOUCH: Any existing parser logic
+
+═══════════════════════════════════════════════════════════════
+              EXTRACTION VALIDATOR REQUIREMENTS
+═══════════════════════════════════════════════════════════════
+
+The new core_logic/extraction_validator.py should:
+
+1. CALCULATE CONFIDENCE SCORE (0-100%)
+
+2. RUN THESE VALIDATION CHECKS:
+
+   CHECK 1: Balance Reconciliation
+   - If statement shows beginning/ending balance
+   - Calculate: Beginning + Credits - Debits = Ending
+   - Flag if off by more than 2%
+   
+   CHECK 2: Transaction Count
+   - Compare extracted count vs stated count (if available from statement summary)
+   - Flag if missing more than 5%
+   
+   CHECK 3: Credit/Debit Sanity
+   - Flag if ALL transactions are credits (no debits) - likely parser error
+   - Flag if ALL transactions are debits (no credits) - likely parser error
+   - Flag if credits = 0 for a business account
+   
+   CHECK 4: Description Quality
+   - Count transactions with empty or numeric-only descriptions
+   - Flag if more than 20% have bad descriptions
+   
+   CHECK 5: Duplicate Detection
+   - Find transactions with: same date + same amount + similar description
+   - Flag as "potential duplicates for review"
+   - Do NOT auto-remove (they might be legitimate)
+   
+   CHECK 6: Date Sanity
+   - Check all dates are within statement period
+   - Flag if dates are in future or very old (wrong year parsing)
+
+3. RETURN A QUALITY REPORT DICT:
+
+{
+    'confidence_score': 87,  # 0-100
+    'status': 'NEEDS_REVIEW',  # GOOD, NEEDS_REVIEW, or POOR
+    'checks_passed': [
+        'Bank detected: Chase',
+        'Credits found: 26 ($468,976)',
+        'Debits found: 241 ($502,305)',
+    ],
+    'issues_found': [
+        'Transaction count: 267 vs 270 stated (3 missing)',
+        'Balance mismatch: Calculated $52,411 vs stated $51,892',
+    ],
+    'potential_duplicates': [
+        {'date': '2022-12-09', 'amount': -14.57, 'descriptions': ['CHECKCARD 1208 COMFORT INN...', 'CHECKCARD COMFORT INN...']},
+    ],
+    'recommendation': 'Review flagged items before submitting to lenders'
+}
+
+4. CONFIDENCE SCORE CALCULATION:
+   - Start at 100
+   - Subtract 20 if balance mismatch > 2%
+   - Subtract 15 if transaction count off > 5%
+   - Subtract 25 if all credits OR all debits only
+   - Subtract 15 if > 20% bad descriptions
+   - Subtract 5 for each potential duplicate pair (max -15)
+   - Subtract 10 if dates outside statement period
+
+5. STATUS THRESHOLDS:
+   - 85-100 = "GOOD" ✅
+   - 70-84 = "NEEDS_REVIEW" ⚠️
+   - Below 70 = "POOR" ❌
+
+═══════════════════════════════════════════════════════════════
+                    REPORTER.PY UPDATE
+═══════════════════════════════════════════════════════════════
+
+Add ONE new tab to the Excel output called "Quality Report" that shows:
+- Confidence Score (big number at top)
+- Status (GOOD/NEEDS_REVIEW/POOR)
+- List of checks passed
+- List of issues found
+- List of potential duplicates for review
+- Recommendation text
+
+This tab should be the LAST tab in the workbook.
+
+═══════════════════════════════════════════════════════════════
+                    CONFIRMATION REQUIRED
+═══════════════════════════════════════════════════════════════
+
+Before you make ANY changes, please confirm:
+
+1. "I will ONLY create core_logic/extraction_validator.py"
+2. "I will ONLY add a Quality Report tab to reporter.py"
+3. "I will NOT modify any parser logic or other files"
+
+Then show me the extraction_validator.py code BEFORE applying it.
