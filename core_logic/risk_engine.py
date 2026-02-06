@@ -23,6 +23,18 @@ NSF_PATTERNS = [
     r'overdraft\s*transfer',
 ]
 
+NSF_WAIVER_PATTERNS = [
+    r'not\s*charged',
+    r'waived',
+    r'reversed',
+    r'fee\s*reversal',
+    r'fee\s*refund',
+    r'credit\s*back',
+    r'overdraft\s*transfer',
+    r'od\s*transfer',
+    r'overdraft\s*protection\s*transfer',
+]
+
 GAMBLING_PATTERNS = [
     r'draftkings',
     r'fanduel',
@@ -142,6 +154,8 @@ def count_nsf_occurrences(transactions: List[Dict]) -> Dict:
         description = txn.get('description', '').lower()
 
         if matches_patterns(description, NSF_PATTERNS):
+            if matches_patterns(description, NSF_WAIVER_PATTERNS):
+                continue
             nsf_transactions.append({
                 'date': txn.get('date'),
                 'description': description,
@@ -1056,6 +1070,7 @@ def _detect_keyword_gambling(transactions: list, keywords: dict) -> dict:
 def _count_nsf_events(transactions: list, keywords: dict) -> dict:
     nsf_kws = [kw.upper() for kw in keywords.get("nsf_keywords", [])]
     nsf_patterns = [re.compile(r'\b' + re.escape(kw) + r'\b') for kw in nsf_kws]
+    waiver_compiled = [re.compile(p, re.IGNORECASE) for p in NSF_WAIVER_PATTERNS]
     count = 0
     total_fees = 0.0
     by_month = defaultdict(int)
@@ -1064,6 +1079,8 @@ def _count_nsf_events(transactions: list, keywords: dict) -> dict:
         desc = txn.get("description", "").upper()
         for pat in nsf_patterns:
             if pat.search(desc):
+                if any(wp.search(desc) for wp in waiver_compiled):
+                    break
                 count += 1
                 fee = abs(txn.get('debit', 0) or txn.get("amount", 0) or 0)
                 total_fees += fee
