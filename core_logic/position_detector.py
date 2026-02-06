@@ -247,16 +247,14 @@ def _detect_frequency(txns: list) -> Optional[str]:
 
     avg_gap = sum(gaps) / len(gaps)
 
-    if avg_gap <= 2:
+    if avg_gap <= 4:
         return "daily"
-    elif 5 <= avg_gap <= 9:
+    elif avg_gap <= 9:
         return "weekly"
-    elif 12 <= avg_gap <= 18:
+    elif avg_gap <= 18:
         return "biweekly"
-    elif 25 <= avg_gap <= 35:
+    elif avg_gap <= 35:
         return "monthly"
-    elif avg_gap <= 4:
-        return "daily"
     else:
         return None
 

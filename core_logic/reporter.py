@@ -419,9 +419,10 @@ def add_lender_matches_sheet(workbook: xlsxwriter.Workbook, matches: List[Dict],
         sheet.write(row, 5, notes[:100], formats['text'])
 
 
-def add_mca_positions_sheet(workbook: xlsxwriter.Workbook, risk_profile: Dict, formats: Dict) -> None:
+def add_mca_positions_sheet(workbook: xlsxwriter.Workbook, risk_profile: Dict, formats: Dict, position_data: Optional[Dict] = None) -> None:
     """
     Add detailed MCA positions sheet with reverse-engineered data.
+    Uses position_detector data when available for more accurate results.
     """
     sheet = workbook.add_worksheet('MCA Positions')
     
@@ -432,81 +433,149 @@ def add_mca_positions_sheet(workbook: xlsxwriter.Workbook, risk_profile: Dict, f
     sheet.set_column('E:E', 15)
     sheet.set_column('F:F', 15)
     sheet.set_column('G:G', 15)
-    sheet.set_column('H:H', 12)
+    sheet.set_column('H:H', 15)
+    sheet.set_column('I:I', 12)
     
     row = 0
     sheet.write(row, 0, 'EXISTING MCA POSITIONS ANALYSIS', formats['title'])
     row += 2
     
+    use_position_detector = position_data and position_data.get('positions')
+    
+    if use_position_detector:
+        pos_list = position_data.get('positions', [])
+        total_positions = position_data.get('total_positions', len(pos_list))
+        total_monthly = position_data.get('total_monthly_payment', 0)
+        total_remaining = position_data.get('estimated_total_remaining', 0)
+        
+        sheet.merge_range(row, 0, row, 8, 'POSITION SUMMARY', formats['subheader'])
+        row += 1
+        sheet.write(row, 0, 'Total Positions Detected', formats['label'])
+        sheet.write(row, 1, total_positions, formats['number'])
+        sheet.write(row, 2, 'Stacking', formats['label'])
+        stacking = 'YES' if total_positions > 1 else 'NO'
+        sheet.write(row, 3, stacking, formats['bad'] if stacking == 'YES' else formats['good'])
+        row += 1
+        sheet.write(row, 0, 'Total Monthly Holdback', formats['label'])
+        sheet.write(row, 1, total_monthly, formats['currency'])
+        sheet.write(row, 2, 'Est. Total Remaining', formats['label'])
+        sheet.write(row, 3, total_remaining, formats['currency'])
+        row += 1
+        sheet.write(row, 0, 'Total Daily Payment', formats['label'])
+        sheet.write(row, 1, position_data.get('total_daily_payment', 0), formats['currency'])
+        sheet.write(row, 2, 'Days Since Last Funding', formats['label'])
+        sheet.write(row, 3, position_data.get('days_since_last_funding', 0), formats['number'])
+        row += 2
+        
+        sheet.merge_range(row, 0, row, 8, 'REVERSE-ENGINEERED POSITIONS', formats['subheader'])
+        row += 1
+        
+        headers = ['Funder', 'Frequency', 'Payments', 'Avg Payment', 'Monthly Cost',
+                   'Est. Funding', 'Est. Remaining', 'Paid In %', 'Est. Payoff']
+        for col, header in enumerate(headers):
+            sheet.write(row, col, header, formats['header'])
+        row += 1
+        
+        for pos in pos_list[:15]:
+            lender = pos.get('lender_name', 'Unknown')
+            freq = pos.get('payment_frequency', 'unknown')
+            pmt_count = pos.get('payments_detected', 0)
+            avg_pmt = pos.get('payment_amount', 0)
+            
+            if freq == 'daily':
+                monthly_cost = avg_pmt * 21.5
+            elif freq == 'weekly':
+                monthly_cost = avg_pmt * 4.33
+            elif freq == 'biweekly':
+                monthly_cost = avg_pmt * 2.17
+            else:
+                monthly_cost = avg_pmt
+            
+            sheet.write(row, 0, lender, formats['text'])
+            sheet.write(row, 1, freq, formats['text'])
+            sheet.write(row, 2, pmt_count, formats['number'])
+            sheet.write(row, 3, avg_pmt, formats['currency'])
+            sheet.write(row, 4, monthly_cost, formats['currency'])
+            sheet.write(row, 5, pos.get('estimated_original_funding', 0), formats['currency'])
+            sheet.write(row, 6, pos.get('estimated_remaining_balance', 0), formats['currency'])
+            paid_pct = pos.get('paid_in_percent', 0)
+            pct_fmt = formats['good'] if paid_pct > 50 else (formats['warning'] if paid_pct > 25 else formats['text'])
+            sheet.write(row, 7, f"{paid_pct:.1f}%", pct_fmt)
+            sheet.write(row, 8, pos.get('estimated_payoff_date', 'Unknown'), formats['text'])
+            row += 1
+    else:
+        mca_data = risk_profile.get('mca_positions', {})
+        
+        sheet.merge_range(row, 0, row, 7, 'POSITION SUMMARY', formats['subheader'])
+        row += 1
+        
+        sheet.write(row, 0, 'Total Lenders Detected', formats['label'])
+        sheet.write(row, 1, mca_data.get('unique_mca_lenders', 0), formats['number'])
+        sheet.write(row, 2, 'Stacking', formats['label'])
+        stacking = 'YES' if mca_data.get('stacking_detected') else 'NO'
+        sheet.write(row, 3, stacking, formats['bad'] if stacking == 'YES' else formats['good'])
+        row += 1
+        
+        sheet.write(row, 0, 'Total Monthly Debt', formats['label'])
+        sheet.write(row, 1, mca_data.get('total_monthly_debt', 0), formats['currency'])
+        sheet.write(row, 2, 'Est. Outstanding', formats['label'])
+        sheet.write(row, 3, mca_data.get('total_outstanding', 0), formats['currency'])
+        row += 2
+        
+        sheet.merge_range(row, 0, row, 7, 'REVERSE-ENGINEERED POSITIONS', formats['subheader'])
+        row += 1
+        
+        headers = ['Funder', 'Frequency', 'Payments', 'Avg Payment', 'Monthly Cost', 'Est. Funding', 'Est. Remaining', 'Status']
+        for col, header in enumerate(headers):
+            sheet.write(row, col, header, formats['header'])
+        row += 1
+        
+        positions = mca_data.get('mca_positions', [])
+        payment_changes = mca_data.get('payment_changes', {})
+        
+        for pos in positions[:15]:
+            lender = pos.get('lender', 'Unknown')
+            status = payment_changes.get(lender, {}).get('status', 'ACTIVE')
+            
+            sheet.write(row, 0, lender, formats['text'])
+            sheet.write(row, 1, pos.get('frequency', 'unknown'), formats['text'])
+            sheet.write(row, 2, pos.get('payment_count', 0), formats['number'])
+            sheet.write(row, 3, pos.get('avg_payment', 0), formats['currency'])
+            sheet.write(row, 4, pos.get('monthly_cost', 0), formats['currency'])
+            sheet.write(row, 5, pos.get('est_funding', 0), formats['currency'])
+            sheet.write(row, 6, pos.get('est_remaining', 0), formats['currency'])
+            
+            status_format = formats['good'] if status == 'ACTIVE' else (formats['warning'] if status == 'REDUCED' else formats['bad'])
+            sheet.write(row, 7, status, status_format)
+            row += 1
+    
+    row += 1
     mca_data = risk_profile.get('mca_positions', {})
-    
-    sheet.merge_range(row, 0, row, 7, 'POSITION SUMMARY', formats['subheader'])
-    row += 1
-    
-    sheet.write(row, 0, 'Total Lenders Detected', formats['label'])
-    sheet.write(row, 1, mca_data.get('unique_mca_lenders', 0), formats['number'])
-    sheet.write(row, 2, 'Stacking', formats['label'])
-    stacking = 'YES' if mca_data.get('stacking_detected') else 'NO'
-    sheet.write(row, 3, stacking, formats['bad'] if stacking == 'YES' else formats['good'])
-    row += 1
-    
-    sheet.write(row, 0, 'Total Monthly Debt', formats['label'])
-    sheet.write(row, 1, mca_data.get('total_monthly_debt', 0), formats['currency'])
-    sheet.write(row, 2, 'Est. Outstanding', formats['label'])
-    sheet.write(row, 3, mca_data.get('total_outstanding', 0), formats['currency'])
-    row += 2
-    
-    sheet.merge_range(row, 0, row, 7, 'REVERSE-ENGINEERED POSITIONS', formats['subheader'])
-    row += 1
-    
-    headers = ['Funder', 'Frequency', 'Payments', 'Avg Payment', 'Monthly Cost', 'Est. Funding', 'Est. Remaining', 'Status']
-    for col, header in enumerate(headers):
-        sheet.write(row, col, header, formats['header'])
-    row += 1
-    
-    positions = mca_data.get('mca_positions', [])
     payment_changes = mca_data.get('payment_changes', {})
-    
-    for pos in positions[:15]:
-        lender = pos.get('lender', 'Unknown')
-        status = payment_changes.get(lender, {}).get('status', 'ACTIVE')
-        
-        sheet.write(row, 0, lender, formats['text'])
-        sheet.write(row, 1, pos.get('frequency', 'unknown'), formats['text'])
-        sheet.write(row, 2, pos.get('payment_count', 0), formats['number'])
-        sheet.write(row, 3, pos.get('avg_payment', 0), formats['currency'])
-        sheet.write(row, 4, pos.get('monthly_cost', 0), formats['currency'])
-        sheet.write(row, 5, pos.get('est_funding', 0), formats['currency'])
-        sheet.write(row, 6, pos.get('est_remaining', 0), formats['currency'])
-        
-        status_format = formats['good'] if status == 'ACTIVE' else (formats['warning'] if status == 'REDUCED' else formats['bad'])
-        sheet.write(row, 7, status, status_format)
+    if payment_changes:
+        sheet.merge_range(row, 0, row, 7, 'PAYMENT CHANGE TRACKING', formats['subheader'])
         row += 1
-    
-    row += 1
-    sheet.merge_range(row, 0, row, 7, 'PAYMENT CHANGE TRACKING', formats['subheader'])
-    row += 1
-    
-    headers2 = ['Funder', 'First Avg', 'Recent Avg', '% Change', 'Status', 'Last Payment', 'Days Since', '']
-    for col, header in enumerate(headers2):
-        sheet.write(row, col, header, formats['header'])
-    row += 1
-    
-    for lender, change in payment_changes.items():
-        sheet.write(row, 0, lender, formats['text'])
-        sheet.write(row, 1, change.get('first_avg', 0), formats['currency'])
-        sheet.write(row, 2, change.get('second_avg', 0), formats['currency'])
         
-        pct = change.get('pct_change', 0)
-        pct_format = formats['good'] if pct < -20 else (formats['bad'] if pct > 20 else formats['text'])
-        sheet.write(row, 3, pct / 100, formats['percent'])
-        
-        status = change.get('status', 'ACTIVE')
-        status_format = formats['good'] if status == 'ACTIVE' else (formats['warning'] if status == 'REDUCED' else formats['bad'])
-        sheet.write(row, 4, status, status_format)
-        sheet.write(row, 5, change.get('last_payment', ''), formats['date'])
-        sheet.write(row, 6, change.get('days_since_last', 0), formats['number'])
+        headers2 = ['Funder', 'First Avg', 'Recent Avg', '% Change', 'Status', 'Last Payment', 'Days Since', '']
+        for col, header in enumerate(headers2):
+            sheet.write(row, col, header, formats['header'])
         row += 1
+        
+        for lender, change in payment_changes.items():
+            sheet.write(row, 0, lender, formats['text'])
+            sheet.write(row, 1, change.get('first_avg', 0), formats['currency'])
+            sheet.write(row, 2, change.get('second_avg', 0), formats['currency'])
+            
+            pct = change.get('pct_change', 0)
+            pct_format = formats['good'] if pct < -20 else (formats['bad'] if pct > 20 else formats['text'])
+            sheet.write(row, 3, pct / 100, formats['percent'])
+            
+            status = change.get('status', 'ACTIVE')
+            status_format = formats['good'] if status == 'ACTIVE' else (formats['warning'] if status == 'REDUCED' else formats['bad'])
+            sheet.write(row, 4, status, status_format)
+            sheet.write(row, 5, change.get('last_payment', ''), formats['date'])
+            sheet.write(row, 6, change.get('days_since_last', 0), formats['number'])
+            row += 1
 
 
 def add_funding_analysis_sheet(workbook: xlsxwriter.Workbook, risk_profile: Dict, formats: Dict) -> None:
@@ -986,7 +1055,8 @@ def generate_master_report(
     if risk_profile:
         add_risk_analysis_sheet(workbook, risk_profile, formats)
         
-        add_mca_positions_sheet(workbook, risk_profile, formats)
+        position_data = summary_data.get('position_data', {}) if isinstance(summary_data, dict) else {}
+        add_mca_positions_sheet(workbook, risk_profile, formats, position_data=position_data)
         
         add_funding_analysis_sheet(workbook, risk_profile, formats)
         

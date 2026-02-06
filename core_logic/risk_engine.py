@@ -310,7 +310,7 @@ def detect_payment_frequency(dates: List[str]) -> str:
 
         avg_per_month = sum(monthly_counts.values()) / len(monthly_counts)
 
-        if avg_per_month >= 15:
+        if avg_per_month >= 10:
             return 'daily'
         elif avg_per_month >= 3.5:
             return 'weekly'

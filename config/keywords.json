@@ -20,11 +20,17 @@
     "Quick Bridge": ["QUICK BRIDGE", "QUICKBRIDGE", "QB FUNDING"],
     "Mantis Funding": ["MANTIS", "MANTIS FUNDING", "MANTIS CAP"],
     "Capytal": ["CAPYTAL", "CAPYTAL INC"],
-    "Unique Funding": ["UNIQUE FUNDING", "UNIQUE FUND", "UNIQUE CAP"]
+    "Unique Funding": ["UNIQUE FUNDING", "UNIQUE FUND", "UNIQUE CAP"],
+    "eFinancialTree": ["EFINANCIALTREE", "E FINANCIAL TREE", "EFINANCIAL TREE", "9144978400"],
+    "CAPYBARA": ["CAPYBARA", "CAPYBARA CAPITAL", "5612081085"],
+    "Rauch-Milliken": ["RAUCH", "RAUCH-MILLIKEN", "RAUCH MILLIKEN", "D002"],
+    "DoorDash Capital": ["DOORDASH CAPITAL", "DOORDASH CAP"],
+    "SL Recovery": ["SL RECOVERY", "SLRECOVERY", "SL RECOV"],
+    "SpotOn MCA": ["SPOTON MINPMT", "SPOT ON MINPMT", "SPOTON MIN PMT"]
   },
   "mca_lenders_tier2_growing": {
     "World Business Lenders": ["WORLD BUS", "WBL", "WORLD BUSINESS"],
-    "Fox Business Funding": ["FOX BUS", "FOX FUNDING", "FOX BUSINESS"],
+    "Fox Business Funding": ["FOX BUS", "FOX FUNDING", "FOX BUSINESS", "IVY RECEIVABLES", "7183166893"],
     "Samson MCA": ["SAMSON", "SAMSON MCA", "SAMSON CAP"],
     "Pearl Capital": ["PEARL", "PEARL CAP", "PEARL CAPITAL"],
     "Kalamata Capital": ["KALAMATA", "KALAMATA CAP", "KALAMATA CAPITAL"],

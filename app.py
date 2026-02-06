@@ -161,6 +161,159 @@ def process():
     return render_template('process.html', files=files)
 
 
+def _build_deal_summary(revenue_metrics, risk_profile, position_data, lender_matches, scrubbed_data, deal_metrics):
+    """Build deal_summary dict for the Deal Summary tab in the Excel report."""
+    risk_score = risk_profile.get('risk_score', {})
+    nsf = risk_profile.get('nsf_analysis', {})
+    neg = risk_profile.get('negative_days', {})
+    recurring = risk_profile.get('recurring_expenses', {})
+    
+    monthly_rev = revenue_metrics.get('monthly_average_deposits', 0)
+    
+    pos_list = position_data.get('positions', []) if position_data else []
+    total_monthly_holdback = position_data.get('total_monthly_payment', 0) if position_data else 0
+    total_remaining = position_data.get('estimated_total_remaining', 0) if position_data else 0
+    total_daily = position_data.get('total_daily_payment', 0) if position_data else 0
+    holdback_pct = (total_monthly_holdback / monthly_rev * 100) if monthly_rev > 0 else 0
+    
+    positions_for_report = []
+    for i, p in enumerate(pos_list):
+        freq = p.get('payment_frequency', 'unknown')
+        avg_pmt = p.get('payment_amount', 0)
+        if freq == 'daily':
+            mo_cost = avg_pmt * 21.5
+        elif freq == 'weekly':
+            mo_cost = avg_pmt * 4.33
+        elif freq == 'biweekly':
+            mo_cost = avg_pmt * 2.17
+        else:
+            mo_cost = avg_pmt
+        positions_for_report.append({
+            'position': i + 1,
+            'funder': p.get('lender_name', 'Unknown'),
+            'payment': avg_pmt,
+            'frequency': freq,
+            'funded_amount': p.get('estimated_original_funding', 0),
+            'remaining': p.get('estimated_remaining_balance', 0),
+            'paid_in_pct': p.get('paid_in_percent', 0),
+            'est_payoff': p.get('estimated_payoff_date', 'Unknown'),
+        })
+    
+    monthly_data = scrubbed_data.get('monthly_data')
+    monthly_breakdown_list = []
+    monthly_rev_values = []
+    if monthly_data is not None and hasattr(monthly_data, 'iterrows'):
+        for _, row in monthly_data.iterrows():
+            mo_rev = row.get('deposits', 0)
+            monthly_rev_values.append(mo_rev)
+            monthly_breakdown_list.append({
+                'month': str(row.get('month', '')),
+                'net_revenue': mo_rev,
+                'nsf_count': 0,
+                'negative_days': 0,
+                'avg_daily_balance': 0,
+                'deposit_count': 0,
+                'holdback_amount': total_monthly_holdback,
+                'holdback_percent': (total_monthly_holdback / mo_rev * 100) if mo_rev > 0 else 0,
+            })
+    
+    lowest_month = min(monthly_rev_values) if monthly_rev_values else 0
+    highest_month = max(monthly_rev_values) if monthly_rev_values else 0
+    
+    if len(monthly_rev_values) >= 2:
+        if monthly_rev_values[-1] > monthly_rev_values[0] * 1.05:
+            trend = 'Growing'
+        elif monthly_rev_values[-1] < monthly_rev_values[0] * 0.95:
+            trend = 'Declining'
+        else:
+            trend = 'Stable'
+    else:
+        trend = 'N/A'
+    
+    max_recommended = deal_metrics.get('max_recommended_funding', 0) if deal_metrics else 0
+    max_daily = deal_metrics.get('max_daily_payment', 0) if deal_metrics else 0
+    
+    avg_daily_balance = risk_profile.get('avg_daily_balance', 0)
+    
+    proposed_funding = max_recommended
+    proposed_factor = 1.35
+    proposed_payback = proposed_funding * proposed_factor
+    proposed_term = 6
+    proposed_daily_pmt = (proposed_payback / (proposed_term * 22)) if proposed_term > 0 else 0
+    proposed_monthly_pmt = proposed_daily_pmt * 22
+    
+    combined_holdback = total_monthly_holdback + proposed_monthly_pmt
+    combined_pct = (combined_holdback / monthly_rev * 100) if monthly_rev > 0 else 0
+    net_after = monthly_rev - combined_holdback
+    adb_ratio = (avg_daily_balance / proposed_daily_pmt) if proposed_daily_pmt > 0 else 0
+    
+    risk_flags = []
+    rf_data = risk_profile.get('red_flags', {})
+    if isinstance(rf_data, dict):
+        for flag in rf_data.get('red_flags', []):
+            if isinstance(flag, str):
+                risk_flags.append(flag)
+            elif isinstance(flag, dict):
+                risk_flags.append(flag.get('description', str(flag)))
+    elif isinstance(rf_data, list):
+        for flag in rf_data:
+            if isinstance(flag, str):
+                risk_flags.append(flag)
+            elif isinstance(flag, dict):
+                risk_flags.append(flag.get('description', str(flag)))
+    
+    top_matches = []
+    for m in (lender_matches or [])[:5]:
+        if m.get('is_match'):
+            top_matches.append({
+                'lender_name': m.get('lender_name', ''),
+                'match_score': m.get('match_score', 0),
+            })
+    
+    return {
+        'legal_name': '',
+        'dba': '',
+        'industry': 'general',
+        'state': '',
+        'fico_score': 0,
+        'time_in_business_months': 12,
+        'ownership_percent': 100,
+        'deal_type': 'New',
+        'tier': risk_score.get('risk_tier', 'N/A'),
+        'avg_monthly_revenue': monthly_rev,
+        'annualized_revenue': monthly_rev * 12,
+        'lowest_month_revenue': lowest_month,
+        'highest_month_revenue': highest_month,
+        'revenue_trend': trend,
+        'avg_daily_balance': avg_daily_balance,
+        'total_nsf_count': nsf.get('nsf_count', 0),
+        'total_negative_days': neg.get('negative_days_count', 0),
+        'position_count': len(pos_list),
+        'days_since_last_funding': position_data.get('days_since_last_funding', 0) if position_data else 0,
+        'total_current_holdback': total_monthly_holdback,
+        'current_holdback_percent': holdback_pct,
+        'total_remaining_balance': total_remaining,
+        'positions': positions_for_report,
+        'proposed_funding': proposed_funding,
+        'proposed_factor_rate': proposed_factor,
+        'proposed_payback': proposed_payback,
+        'proposed_term_months': proposed_term,
+        'proposed_payment': proposed_daily_pmt,
+        'proposed_frequency': 'daily',
+        'new_holdback_amount': proposed_monthly_pmt,
+        'combined_holdback': combined_holdback,
+        'combined_holdback_percent': combined_pct,
+        'net_available_after': net_after,
+        'adb_to_payment_ratio': adb_ratio,
+        'max_recommended_funding': max_recommended,
+        'max_daily_payment': max_daily,
+        'risk_flags': risk_flags,
+        'eligible_lender_count': len(top_matches),
+        'top_lender_matches': top_matches,
+        'monthly_breakdown': monthly_breakdown_list,
+    }
+
+
 def run_combined_pipeline(pdf_paths):
     """
     Run the complete underwriting pipeline on MULTIPLE PDFs.
@@ -183,6 +336,8 @@ def run_combined_pipeline(pdf_paths):
         bank_formats = []
         total_pages = 0
         all_fraud_flags = []
+        ocr_total_deposits = 0
+        ocr_total_withdrawals = 0
         
         for pdf_path in pdf_paths:
             ocr_data = process_bank_statement(pdf_path)
@@ -195,8 +350,23 @@ def run_combined_pipeline(pdf_paths):
                 if ocr_data.get('fraud_flags'):
                     all_fraud_flags.extend(ocr_data['fraud_flags'])
                 
-                if not all_account_info and ocr_data.get('account_info'):
-                    all_account_info = ocr_data.get('account_info', {})
+                ocr_summary = ocr_data.get('summary', {})
+                ocr_total_deposits += ocr_summary.get('total_deposits', 0)
+                ocr_total_withdrawals += ocr_summary.get('total_withdrawals', 0)
+                
+                acct = ocr_data.get('account_info', {})
+                if acct:
+                    if not all_account_info:
+                        all_account_info = dict(acct)
+                    else:
+                        if acct.get('bank_name') and not all_account_info.get('bank_name'):
+                            all_account_info['bank_name'] = acct['bank_name']
+                        if acct.get('statement_period_start') and not all_account_info.get('statement_period_start'):
+                            all_account_info['statement_period_start'] = acct['statement_period_start']
+                        if acct.get('statement_period_end'):
+                            all_account_info['statement_period_end'] = acct['statement_period_end']
+                        if acct.get('closing_balance'):
+                            all_account_info['closing_balance'] = acct['closing_balance']
         
         unique_banks = list(set(bank_formats))
         bank_str = ', '.join(unique_banks) if unique_banks else 'unknown'
@@ -322,9 +492,15 @@ def run_combined_pipeline(pdf_paths):
         else:
             lender_matches = {'matches': []}
         
+        revenue_metrics = scrubbed_data.get('revenue_metrics', {})
+        if not revenue_metrics.get('gross_deposits') and ocr_total_deposits > 0:
+            revenue_metrics['gross_deposits'] = ocr_total_deposits
+        if not revenue_metrics.get('gross_withdrawals') and ocr_total_withdrawals > 0:
+            revenue_metrics['gross_withdrawals'] = ocr_total_withdrawals
+        
         summary_data = {
             'account_info': all_account_info,
-            'revenue_metrics': scrubbed_data.get('revenue_metrics', {}),
+            'revenue_metrics': revenue_metrics,
             'risk_profile': risk_profile,
             'enhanced_risk': enhanced_risk,
             'deal_metrics': deal_metrics,
@@ -332,6 +508,11 @@ def run_combined_pipeline(pdf_paths):
             'files_processed': len(pdf_paths),
             'total_pages': total_pages,
         }
+        
+        deal_summary = _build_deal_summary(
+            revenue_metrics, risk_profile, position_data,
+            lender_matches.get('matches', []), scrubbed_data, deal_metrics
+        )
         
         report_path = generate_master_report(
             summary_data=summary_data,
@@ -341,6 +522,7 @@ def run_combined_pipeline(pdf_paths):
             lender_matches=lender_matches.get('matches', []),
             output_dir=OUTPUT_FOLDER,
             fraud_flags=all_fraud_flags,
+            deal_summary=deal_summary,
         )
         
         if report_path:
@@ -511,14 +693,26 @@ def run_pipeline(pdf_path):
         else:
             lender_matches = {'matches': []}
         
+        revenue_metrics = scrubbed_data.get('revenue_metrics', {})
+        ocr_summary = ocr_data.get('summary', {})
+        if not revenue_metrics.get('gross_deposits') and ocr_summary.get('total_deposits'):
+            revenue_metrics['gross_deposits'] = ocr_summary['total_deposits']
+        if not revenue_metrics.get('gross_withdrawals') and ocr_summary.get('total_withdrawals'):
+            revenue_metrics['gross_withdrawals'] = ocr_summary['total_withdrawals']
+        
         summary_data = {
             'account_info': ocr_data.get('account_info', {}),
-            'revenue_metrics': scrubbed_data.get('revenue_metrics', {}),
+            'revenue_metrics': revenue_metrics,
             'risk_profile': risk_profile,
             'enhanced_risk': enhanced_risk,
             'deal_metrics': deal_metrics,
             'position_data': position_data,
         }
+        
+        deal_summary = _build_deal_summary(
+            revenue_metrics, risk_profile, position_data,
+            lender_matches.get('matches', []), scrubbed_data, deal_metrics
+        )
         
         report_path = generate_master_report(
             summary_data=summary_data,
@@ -528,6 +722,7 @@ def run_pipeline(pdf_path):
             lender_matches=lender_matches.get('matches', []),
             output_dir=OUTPUT_FOLDER,
             fraud_flags=ocr_data.get('fraud_flags', []),
+            deal_summary=deal_summary,
         )
         
         if report_path:
