@@ -9,13 +9,16 @@
         <div class="upload-zone" id="uploadZone">
             <div class="upload-icon">&#8679;</div>
             <h3>Drag & Drop PDF Files Here</h3>
-            <p>or click to browse</p>
+            <p>or click to browse - select multiple files at once</p>
             <input type="file" name="files" id="fileInput" multiple accept=".pdf" class="file-input">
             <div class="file-preview" id="filePreview"></div>
         </div>
-        <button type="submit" class="btn btn-primary btn-large" id="uploadBtn" disabled>
-            Upload Selected Files
-        </button>
+        <div class="upload-actions" id="uploadActions" style="display:none;">
+            <div class="upload-summary" id="uploadSummary"></div>
+            <button type="submit" class="btn btn-primary btn-large" id="uploadBtn">
+                Upload Selected Files
+            </button>
+        </div>
     </form>
 </div>
 
@@ -29,6 +32,7 @@
     <table class="data-table">
         <thead>
             <tr>
+                <th>#</th>
                 <th>Filename</th>
                 <th>Size</th>
                 <th>Uploaded</th>
@@ -38,11 +42,12 @@
         <tbody>
             {% for file in files %}
             <tr>
+                <td>{{ loop.index }}</td>
                 <td>
                     <span class="file-icon">&#128196;</span>
                     {{ file.name }}
                 </td>
-                <td>{{ file.size }} KB</td>
+                <td>{{ file.size_display }}</td>
                 <td>{{ file.uploaded }}</td>
                 <td>
                     <form action="{{ url_for('delete_file', filename=file.name) }}" method="post" class="inline-form">
@@ -53,6 +58,11 @@
             {% endfor %}
         </tbody>
     </table>
+    <div class="table-footer">
+        <a href="{{ url_for('process') }}" class="btn btn-primary">
+            Proceed to Processing
+        </a>
+    </div>
     {% else %}
     <div class="empty-state">
         <p>No files uploaded yet</p>
@@ -65,9 +75,13 @@
 const uploadZone = document.getElementById('uploadZone');
 const fileInput = document.getElementById('fileInput');
 const filePreview = document.getElementById('filePreview');
-const uploadBtn = document.getElementById('uploadBtn');
+const uploadActions = document.getElementById('uploadActions');
+const uploadSummary = document.getElementById('uploadSummary');
 
-uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('click', (e) => {
+    if (e.target === fileInput) return;
+    fileInput.click();
+});
 
 uploadZone.addEventListener('dragover', (e) => {
     e.preventDefault();
@@ -92,15 +106,21 @@ function updatePreview() {
     const files = fileInput.files;
     
     if (files.length > 0) {
-        uploadBtn.disabled = false;
+        uploadActions.style.display = 'flex';
+        let totalSize = 0;
         for (let file of files) {
+            totalSize += file.size;
             const div = document.createElement('div');
             div.className = 'preview-item';
-            div.innerHTML = `<span class="file-icon">&#128196;</span> ${file.name} <span class="file-size">(${(file.size/1024).toFixed(1)} KB)</span>`;
+            const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+            const sizeStr = file.size > 1024 * 1024 ? sizeMB + ' MB' : (file.size / 1024).toFixed(0) + ' KB';
+            div.innerHTML = '<span class="file-icon">&#128196;</span> ' + file.name + ' <span class="file-size">(' + sizeStr + ')</span>';
             filePreview.appendChild(div);
         }
+        const totalMB = (totalSize / (1024 * 1024)).toFixed(1);
+        uploadSummary.textContent = files.length + ' file(s) selected (' + totalMB + ' MB total)';
     } else {
-        uploadBtn.disabled = true;
+        uploadActions.style.display = 'none';
     }
 }
 </script>

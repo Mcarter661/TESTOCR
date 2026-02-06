@@ -1,0 +1,268 @@
+⚠️ UI/UX IMPROVEMENT REQUEST - FILE UPLOAD, PROCESSING & MISSING MONTH DETECTION ⚠️
+
+I need you to fix the file upload flow AND add missing month detection. 
+These are ADDITIONS and UI changes - do NOT modify existing parser logic.
+
+═══════════════════════════════════════════════════════════════
+                    PROBLEM 1: SINGLE FILE UPLOAD
+═══════════════════════════════════════════════════════════════
+
+CURRENT BEHAVIOR:
+- Can only upload 1 file at a time
+- Have to repeat upload process for each statement
+
+WHAT I NEED:
+- Allow MULTIPLE file uploads at once (batch upload)
+- User can select 5, 10, 20+ PDFs and upload them all together
+- Show upload progress for each file
+- No limit on number of files (within reason)
+- Take as long as needed - no rush, accuracy matters
+
+═══════════════════════════════════════════════════════════════
+                    PROBLEM 2: CONFUSING FILE LIST
+═══════════════════════════════════════════════════════════════
+
+CURRENT BEHAVIOR:
+- Process page shows files in a weird/confusing way
+- Hard to tell which files are new uploads
+- Files get mixed up
+
+WHAT I NEED:
+- Simple LIST VIEW of uploaded files
+- Show ONLY the new uploads (not old processed files)
+- Clear file names visible
+- Organized by upload batch/date
+
+EXAMPLE OF WHAT I WANT TO SEE:
+
+╔══════════════════════════════════════════════════════════════╗
+║  UPLOADED FILES - Ready to Process                          ║
+╠══════════════════════════════════════════════════════════════╣
+║                                                              ║
+║  📁 Upload Batch: February 6, 2026 at 3:45 PM               ║
+║  ─────────────────────────────────────────────────────────  ║
+║  ☐  1. chase_october_2023_basmala.pdf         (2.3 MB)      ║
+║  ☐  2. bofa_december_2022_boston.pdf          (1.8 MB)      ║
+║  ☐  3. bofa_october_2023_boston.pdf           (2.1 MB)      ║
+║  ☐  4. bofa_november_2023_boston.pdf          (1.9 MB)      ║
+║  ☐  5. wells_fargo_september_2023.pdf         (1.5 MB)      ║
+║                                                              ║
+║  ─────────────────────────────────────────────────────────  ║
+║  Total: 5 files ready to process                            ║
+║                                                              ║
+║  [Select All]  [Clear All]  [🚀 Process Selected Files]     ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+
+═══════════════════════════════════════════════════════════════
+                    PROBLEM 3: NO MISSING MONTH DETECTION
+═══════════════════════════════════════════════════════════════
+
+CURRENT BEHAVIOR:
+- System doesn't tell me if I'm missing a month between statements
+- I could upload Dec 2022, Feb 2023, Mar 2023 and not realize Jan 2023 is missing
+
+WHAT I NEED:
+- Detect gaps in statement coverage
+- Alert me if months are missing
+- Show which months I have vs which are missing
+
+═══════════════════════════════════════════════════════════════
+                    PROCESSING FLOW
+═══════════════════════════════════════════════════════════════
+
+WHEN USER CLICKS "PROCESS":
+
+1. Process files ONE BY ONE (not all at once)
+
+2. Show progress for each file:
+   
+   Processing: chase_october_2023_basmala.pdf
+   ████████████░░░░░░░░ 60%
+   Step: Extracting transactions...
+
+3. Take as long as needed - accuracy over speed
+
+4. Show status for each file when done:
+   
+   ✅ chase_october_2023_basmala.pdf - 267 transactions - Score: 89/100
+   ✅ bofa_december_2022_boston.pdf - 561 transactions - Score: 85/100
+   🔄 bofa_october_2023_boston.pdf - Processing...
+   ⏳ bofa_november_2023_boston.pdf - Waiting...
+   ⏳ wells_fargo_september_2023.pdf - Waiting...
+
+5. After ALL files processed, show summary WITH COVERAGE CHECK:
+   
+   ════════════════════════════════════════════════════════════
+   PROCESSING COMPLETE
+   ════════════════════════════════════════════════════════════
+   ✅ 5 files processed successfully
+   📊 Total transactions: 1,842
+   📁 Reports saved to: output_reports/
+   
+   ════════════════════════════════════════════════════════════
+   📅 STATEMENT COVERAGE CHECK
+   ════════════════════════════════════════════════════════════
+   
+   Bank: Bank of America (Account ****8981)
+   ─────────────────────────────────────────
+   ✅ December 2022
+   ❌ January 2023   ← MISSING
+   ❌ February 2023  ← MISSING
+   ⋮  (gap)
+   ❌ September 2023 ← MISSING
+   ✅ October 2023
+   ✅ November 2023
+   
+   Coverage: 3 of 12 months (25%)
+   Missing: 9 months
+   
+   ⚠️ WARNING: Large gap detected (Jan 2023 - Sep 2023)
+   
+   Bank: Chase (Account ****1234)
+   ─────────────────────────────────────────
+   ✅ October 2023
+   ✅ November 2023
+   ✅ December 2023
+   
+   Coverage: 3 consecutive months ✓
+   
+   ════════════════════════════════════════════════════════════
+   
+   [Download All Reports]  [View Individual Reports]
+
+═══════════════════════════════════════════════════════════════
+                    MISSING MONTH DETECTION LOGIC
+═══════════════════════════════════════════════════════════════
+
+ADD TO: extraction_validator.py (as a new function)
+
+The function should:
+
+1. Group uploaded statements by BANK + ACCOUNT NUMBER
+
+2. For each bank/account group:
+   - Find the earliest month
+   - Find the latest month
+   - Check every month in between
+   - Flag any missing months
+
+3. Return coverage report:
+
+{
+    'bank_coverage': [
+        {
+            'bank': 'Bank of America',
+            'account': '****8981',
+            'months_found': ['2022-12', '2023-10', '2023-11'],
+            'months_missing': ['2023-01', '2023-02', '2023-03', '2023-04', 
+                              '2023-05', '2023-06', '2023-07', '2023-08', '2023-09'],
+            'coverage_percent': 25,
+            'is_consecutive': False,
+            'largest_gap': '9 months (Jan 2023 - Sep 2023)',
+            'warning': 'Large gap detected - request missing statements'
+        },
+        {
+            'bank': 'Chase',
+            'account': '****1234',
+            'months_found': ['2023-10', '2023-11', '2023-12'],
+            'months_missing': [],
+            'coverage_percent': 100,
+            'is_consecutive': True,
+            'largest_gap': None,
+            'warning': None
+        }
+    ],
+    'total_banks': 2,
+    'total_months_covered': 6,
+    'has_gaps': True,
+    'recommendation': 'Request Bank of America statements for Jan-Sep 2023'
+}
+
+4. MCA UNDERWRITING CONTEXT:
+   - Most lenders require 3-6 CONSECUTIVE months
+   - Flag if coverage is less than 3 months for any bank
+   - Flag if there are gaps (non-consecutive months)
+   - Recommend which statements to request
+
+═══════════════════════════════════════════════════════════════
+                    QUALITY REPORT TAB UPDATE
+═══════════════════════════════════════════════════════════════
+
+ADD to the Quality Report tab in Excel:
+
+STATEMENT COVERAGE SECTION:
+────────────────────────────
+Bank: Bank of America (****8981)
+
+Month        Status
+─────────────────────
+Dec 2022     ✅ Found
+Jan 2023     ❌ MISSING
+Feb 2023     ❌ MISSING
+...
+Oct 2023     ✅ Found
+Nov 2023     ✅ Found
+
+Coverage: 3 of 12 months (25%)
+Consecutive: NO
+Largest Gap: 9 months
+
+⚠️ Request missing statements before submitting to lenders
+
+═══════════════════════════════════════════════════════════════
+                    FILE ORGANIZATION
+═══════════════════════════════════════════════════════════════
+
+KEEP FILES ORGANIZED:
+- input_pdfs/ → Where uploads go
+- output_reports/ → Where Excel reports go
+- Archive old files after processing (optional)
+
+CLEAR NAMING:
+- Reports should match input file names
+- Example: chase_october_2023.pdf → MCA_Analysis_chase_october_2023.xlsx
+
+═══════════════════════════════════════════════════════════════
+                    WHAT TO CHANGE
+═══════════════════════════════════════════════════════════════
+
+✅ UPDATE: Upload page - Allow multiple file selection
+✅ UPDATE: Process page - Clean list view of uploaded files  
+✅ UPDATE: Processing flow - One by one with progress
+✅ ADD: Batch summary after processing complete
+✅ ADD: Missing month detection function in extraction_validator.py
+✅ ADD: Coverage section in Quality Report tab
+✅ ADD: Coverage summary in processing complete screen
+
+═══════════════════════════════════════════════════════════════
+                    WHAT NOT TO CHANGE
+═══════════════════════════════════════════════════════════════
+
+🚫 DO NOT TOUCH: ocr_engine.py
+🚫 DO NOT TOUCH: bank_parsers.py  
+🚫 DO NOT TOUCH: reporter.py (except adding coverage to Quality Report tab)
+🚫 DO NOT TOUCH: risk_engine.py
+🚫 DO NOT TOUCH: position_detector.py
+🚫 DO NOT TOUCH: calculator.py
+🚫 DO NOT TOUCH: scrubber.py
+🚫 DO NOT TOUCH: lender_matcher.py
+🚫 DO NOT TOUCH: deal_input.py
+🚫 DO NOT TOUCH: deal_summary.py
+🚫 DO NOT TOUCH: Any config files
+🚫 DO NOT TOUCH: Any existing parser logic
+
+═══════════════════════════════════════════════════════════════
+                    CONFIRMATION REQUIRED
+═══════════════════════════════════════════════════════════════
+
+Before making changes, please confirm:
+
+1. "I understand - allow multiple file uploads at once"
+2. "I understand - show clean list view of uploaded files only"
+3. "I understand - process one file at a time with progress"
+4. "I understand - add missing month detection grouped by bank/account"
+5. "I understand - show coverage in Quality Report tab and processing summary"
+6. "I understand - I will NOT touch any parser or core extraction logic"
+
+Then show me your plan before implementing.

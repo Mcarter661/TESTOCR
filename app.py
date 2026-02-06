@@ -21,7 +21,7 @@ from core_logic.position_detector import detect_positions
 from core_logic.calculator import calculate_full_deal_metrics, calculate_deal_summary
 from core_logic.deal_input import DealInput, MonthlyData, ManualPosition
 from core_logic.deal_summary import generate_deal_summary, DealSummary
-from core_logic.extraction_validator import validate_extraction
+from core_logic.extraction_validator import validate_extraction, detect_coverage_gaps
 from core_logic.claude_auto_fix import attempt_auto_fix
 
 CONFIG_DIR = 'config'
@@ -72,9 +72,15 @@ def get_uploaded_files():
             if filename.lower().endswith('.pdf'):
                 filepath = os.path.join(UPLOAD_FOLDER, filename)
                 stat = os.stat(filepath)
+                size_bytes = stat.st_size
+                if size_bytes >= 1024 * 1024:
+                    size_display = f"{size_bytes / (1024*1024):.1f} MB"
+                else:
+                    size_display = f"{size_bytes / 1024:.0f} KB"
                 files.append({
                     'name': filename,
-                    'size': round(stat.st_size / 1024, 2),  # KB
+                    'size': round(size_bytes / 1024, 2),
+                    'size_display': size_display,
                     'uploaded': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M')
                 })
     return sorted(files, key=lambda x: x['uploaded'], reverse=True)
@@ -522,6 +528,25 @@ def run_combined_pipeline(pdf_paths):
         )
         deal_summary = asdict(deal_summary_obj)
 
+        coverage_report = detect_coverage_gaps(all_transactions, all_account_info)
+        result['coverage_report'] = coverage_report
+        quality_report['coverage_report'] = coverage_report
+        result['quality_report'] = quality_report
+
+        if coverage_report.get('has_gaps'):
+            result['steps'].append({
+                'name': 'Coverage Check',
+                'status': 'complete',
+                'message': f"Gaps detected: {coverage_report.get('recommendation', 'Check coverage')}"
+            })
+        else:
+            total_months = coverage_report.get('total_months_covered', 0)
+            result['steps'].append({
+                'name': 'Coverage Check',
+                'status': 'complete',
+                'message': f'{total_months} month(s) covered, no gaps detected'
+            })
+
         report_path = generate_master_report(
             summary_data=summary_data,
             transactions=scrubbed_transactions,
@@ -859,6 +884,86 @@ def delete_file(filename):
     else:
         flash('File not found', 'error')
     return redirect(url_for('upload'))
+
+
+@app.route('/api/process_single', methods=['POST'])
+def api_process_single():
+    """Process a single file and return extraction results (for AJAX progress)."""
+    data = request.get_json()
+    filename = data.get('filename', '')
+
+    pdf_path = os.path.join(UPLOAD_FOLDER, filename)
+    if not os.path.exists(pdf_path):
+        return jsonify({'success': False, 'error': 'File not found'})
+
+    try:
+        ocr_data = process_bank_statement(pdf_path)
+        if ocr_data and ocr_data.get('success'):
+            txns = ocr_data.get('transactions', [])
+            bank_fmt = ocr_data.get('bank_format', 'unknown')
+            acct = ocr_data.get('account_info', {})
+
+            qr = validate_extraction(
+                transactions=txns,
+                bank_name=bank_fmt,
+                beginning_balance=acct.get('opening_balance'),
+                ending_balance=acct.get('closing_balance'),
+                statement_start=acct.get('statement_period_start'),
+                statement_end=acct.get('statement_period_end'),
+            )
+
+            return jsonify({
+                'success': True,
+                'transaction_count': len(txns),
+                'bank_format': bank_fmt,
+                'quality_score': qr.get('confidence_score', 0),
+                'quality_status': qr.get('status', 'UNKNOWN'),
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': ocr_data.get('error', 'Extraction failed') if ocr_data else 'No data returned',
+            })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/process_batch', methods=['POST'])
+def api_process_batch():
+    """Process all selected files through the full pipeline and return summary with coverage."""
+    data = request.get_json()
+    filenames = data.get('filenames', [])
+
+    pdf_paths = []
+    for fn in filenames:
+        p = os.path.join(UPLOAD_FOLDER, fn)
+        if os.path.exists(p):
+            pdf_paths.append(p)
+
+    if not pdf_paths:
+        return jsonify({'success': False, 'error': 'No valid files'})
+
+    result = run_combined_pipeline(pdf_paths)
+
+    response = {
+        'success': result.get('status') == 'success',
+        'file_count': len(pdf_paths),
+        'total_transactions': result.get('summary', {}).get('total_transactions', 0),
+        'quality_score': None,
+        'report_name': None,
+        'coverage': None,
+    }
+
+    if result.get('report_path'):
+        response['report_name'] = os.path.basename(result['report_path'])
+
+    if result.get('quality_report'):
+        response['quality_score'] = result['quality_report'].get('confidence_score')
+
+    if result.get('coverage_report'):
+        response['coverage'] = result['coverage_report']
+
+    return jsonify(response)
 
 
 if __name__ == '__main__':

@@ -4,55 +4,59 @@
 {% block page_title %}Process Bank Statements{% endblock %}
 
 {% block content %}
-<div class="process-info">
-    <div class="info-box">
-        <h4>Processing Pipeline</h4>
-        <p>Select files below and click "Start Processing" to run them through the underwriting pipeline:</p>
-        <ol class="pipeline-list">
-            <li><strong>OCR Extraction</strong> - Extract text from PDF bank statements</li>
-            <li><strong>Transaction Scrubbing</strong> - Clean data, identify transfers, calculate net revenue</li>
-            <li><strong>Risk Analysis</strong> - Count NSFs, negative days, calculate DTI, flag cash activity</li>
-            <li><strong>Lender Matching</strong> - Match applicant profile against lender criteria</li>
-            <li><strong>Report Generation</strong> - Generate Master Excel report with all analysis</li>
-        </ol>
-        <p class="note" style="color: #4CAF50;"><strong>Ready:</strong> All pipeline functions are fully implemented and operational.</p>
+<div id="fileSelectionView" {% if not files %}style="display:none"{% endif %}>
+    <div class="process-info">
+        <div class="info-box">
+            <h4>Processing Pipeline</h4>
+            <p>Select files below and click "Process Selected Files" to run them through the underwriting pipeline. Files are processed for accuracy - this may take a moment per file.</p>
+        </div>
+    </div>
+
+    <div class="process-form">
+        <div class="file-selection">
+            <div class="selection-header">
+                <label class="select-all">
+                    <input type="checkbox" id="selectAll" onchange="toggleAll()">
+                    Select All ({{ files|length }} files)
+                </label>
+                <span class="selection-count" id="selectionCount">0 selected</span>
+            </div>
+
+            <div class="file-list-table">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width:40px"></th>
+                            <th>#</th>
+                            <th>Filename</th>
+                            <th>Size</th>
+                            <th>Uploaded</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for file in files %}
+                        <tr class="file-row" onclick="toggleFile(this)">
+                            <td><input type="checkbox" class="file-checkbox" value="{{ file.name }}" onchange="updateCount(event)"></td>
+                            <td>{{ loop.index }}</td>
+                            <td><span class="file-icon">&#128196;</span> {{ file.name }}</td>
+                            <td>{{ file.size_display }}</td>
+                            <td>{{ file.uploaded }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="process-actions">
+            <button type="button" class="btn btn-primary btn-large" id="processBtn" onclick="startProcessing()" disabled>
+                Process Selected Files
+            </button>
+        </div>
     </div>
 </div>
 
-{% if files %}
-<form action="{{ url_for('process') }}" method="post" class="process-form">
-    <div class="file-selection">
-        <div class="selection-header">
-            <label class="select-all">
-                <input type="checkbox" id="selectAll" onchange="toggleAll()">
-                Select All ({{ files|length }} files)
-            </label>
-        </div>
-        
-        <div class="file-grid">
-            {% for file in files %}
-            <label class="file-card">
-                <input type="checkbox" name="selected_files" value="{{ file.name }}" class="file-checkbox">
-                <div class="file-card-content">
-                    <div class="file-icon">&#128196;</div>
-                    <div class="file-info">
-                        <h4>{{ file.name }}</h4>
-                        <p>{{ file.size }} KB | {{ file.uploaded }}</p>
-                    </div>
-                </div>
-            </label>
-            {% endfor %}
-        </div>
-    </div>
-    
-    <div class="process-actions">
-        <button type="submit" class="btn btn-primary btn-large" id="processBtn">
-            <span class="icon">&#9881;</span>
-            Start Processing
-        </button>
-    </div>
-</form>
-{% else %}
+{% if not files %}
 <div class="empty-state large">
     <div class="empty-icon">&#128196;</div>
     <h3>No Files to Process</h3>
@@ -64,19 +68,216 @@
 </div>
 {% endif %}
 
+<div id="processingView" style="display:none">
+    <div class="processing-card">
+        <h3>Processing Bank Statements</h3>
+        <p class="processing-subtitle" id="processingSubtitle">Preparing...</p>
+
+        <div class="overall-progress">
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="overallProgress" style="width:0%"></div>
+            </div>
+            <span class="progress-text" id="overallProgressText">0%</span>
+        </div>
+
+        <div class="file-status-list" id="fileStatusList"></div>
+    </div>
+</div>
+
+<div id="completionView" style="display:none">
+    <div class="completion-card">
+        <div class="completion-header">
+            <h3>Processing Complete</h3>
+        </div>
+
+        <div class="completion-stats" id="completionStats"></div>
+
+        <div class="coverage-section" id="coverageSection" style="display:none">
+            <h4>Statement Coverage Check</h4>
+            <div id="coverageContent"></div>
+        </div>
+
+        <div class="completion-actions">
+            <a href="{{ url_for('results') }}" class="btn btn-primary btn-large">View Reports</a>
+            <a href="{{ url_for('upload') }}" class="btn btn-secondary">Upload More Files</a>
+        </div>
+    </div>
+</div>
+
 <script>
-function toggleAll() {
-    const selectAll = document.getElementById('selectAll');
-    const checkboxes = document.querySelectorAll('.file-checkbox');
-    checkboxes.forEach(cb => cb.checked = selectAll.checked);
+function toggleFile(row) {
+    const cb = row.querySelector('.file-checkbox');
+    if (event.target === cb) return;
+    cb.checked = !cb.checked;
+    updateCount();
 }
 
-document.querySelectorAll('.file-checkbox').forEach(cb => {
-    cb.addEventListener('change', () => {
-        const allChecked = document.querySelectorAll('.file-checkbox:checked').length;
-        const total = document.querySelectorAll('.file-checkbox').length;
-        document.getElementById('selectAll').checked = allChecked === total;
+function toggleAll() {
+    const selectAll = document.getElementById('selectAll');
+    document.querySelectorAll('.file-checkbox').forEach(cb => cb.checked = selectAll.checked);
+    updateCount();
+}
+
+function updateCount(e) {
+    if (e) e.stopPropagation();
+    const checked = document.querySelectorAll('.file-checkbox:checked').length;
+    const total = document.querySelectorAll('.file-checkbox').length;
+    document.getElementById('selectionCount').textContent = checked + ' selected';
+    document.getElementById('processBtn').disabled = checked === 0;
+    document.getElementById('selectAll').checked = checked === total && total > 0;
+}
+
+function startProcessing() {
+    const selected = [];
+    document.querySelectorAll('.file-checkbox:checked').forEach(cb => selected.push(cb.value));
+    if (selected.length === 0) return;
+
+    document.getElementById('fileSelectionView').style.display = 'none';
+    document.getElementById('processingView').style.display = 'block';
+
+    const statusList = document.getElementById('fileStatusList');
+    statusList.innerHTML = '';
+
+    selected.forEach((file, i) => {
+        const div = document.createElement('div');
+        div.className = 'file-status-item waiting';
+        div.id = 'status-' + i;
+        div.innerHTML =
+            '<span class="status-icon">&#9203;</span>' +
+            '<span class="status-filename">' + file + '</span>' +
+            '<span class="status-detail">Waiting...</span>';
+        statusList.appendChild(div);
     });
-});
+
+    processFiles(selected, 0);
+}
+
+function processFiles(files, index) {
+    if (index >= files.length) {
+        fetchSummary(files);
+        return;
+    }
+
+    const pct = Math.round((index / files.length) * 100);
+    document.getElementById('overallProgress').style.width = pct + '%';
+    document.getElementById('overallProgressText').textContent = pct + '%';
+    document.getElementById('processingSubtitle').textContent =
+        'Processing file ' + (index + 1) + ' of ' + files.length + '...';
+
+    const item = document.getElementById('status-' + index);
+    item.className = 'file-status-item processing';
+    item.querySelector('.status-icon').innerHTML = '&#128260;';
+    item.querySelector('.status-detail').textContent = 'Extracting transactions...';
+
+    fetch('/api/process_single', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({filename: files[index]})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            item.className = 'file-status-item complete';
+            item.querySelector('.status-icon').innerHTML = '&#9989;';
+            let detail = data.transaction_count + ' transactions';
+            if (data.quality_score !== undefined) {
+                detail += ' - Score: ' + data.quality_score + '/100';
+            }
+            item.querySelector('.status-detail').textContent = detail;
+        } else {
+            item.className = 'file-status-item error';
+            item.querySelector('.status-icon').innerHTML = '&#10060;';
+            item.querySelector('.status-detail').textContent = data.error || 'Processing failed';
+        }
+        processFiles(files, index + 1);
+    })
+    .catch(err => {
+        item.className = 'file-status-item error';
+        item.querySelector('.status-icon').innerHTML = '&#10060;';
+        item.querySelector('.status-detail').textContent = 'Error: ' + err.message;
+        processFiles(files, index + 1);
+    });
+}
+
+function fetchSummary(files) {
+    document.getElementById('overallProgress').style.width = '100%';
+    document.getElementById('overallProgressText').textContent = '100%';
+    document.getElementById('processingSubtitle').textContent = 'Generating consolidated report...';
+
+    fetch('/api/process_batch', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({filenames: files})
+    })
+    .then(r => r.json())
+    .then(data => {
+        document.getElementById('processingView').style.display = 'none';
+        document.getElementById('completionView').style.display = 'block';
+
+        const stats = document.getElementById('completionStats');
+        stats.innerHTML =
+            '<div class="stat-row"><span class="stat-label">Files Processed</span><span class="stat-value">' + data.file_count + '</span></div>' +
+            '<div class="stat-row"><span class="stat-label">Total Transactions</span><span class="stat-value">' + (data.total_transactions || 0).toLocaleString() + '</span></div>' +
+            '<div class="stat-row"><span class="stat-label">Quality Score</span><span class="stat-value">' + (data.quality_score || 'N/A') + '/100</span></div>' +
+            '<div class="stat-row"><span class="stat-label">Report</span><span class="stat-value">' + (data.report_name || 'N/A') + '</span></div>';
+
+        if (data.coverage) {
+            showCoverage(data.coverage);
+        }
+    })
+    .catch(err => {
+        document.getElementById('processingSubtitle').textContent = 'Error generating report: ' + err.message;
+    });
+}
+
+function showCoverage(coverage) {
+    const section = document.getElementById('coverageSection');
+    const content = document.getElementById('coverageContent');
+    section.style.display = 'block';
+    
+    let html = '';
+
+    if (coverage.bank_coverage) {
+        coverage.bank_coverage.forEach(bc => {
+            let bankLabel = bc.bank;
+            if (bc.account) bankLabel += ' (' + bc.account + ')';
+
+            html += '<div class="coverage-bank">';
+            html += '<h5>' + bankLabel + '</h5>';
+            html += '<div class="coverage-months">';
+
+            const allMonths = bc.months_found.concat(bc.months_missing).sort();
+            allMonths.forEach(m => {
+                const found = bc.months_found.includes(m);
+                const dt = new Date(m + '-01');
+                const label = dt.toLocaleDateString('en-US', {month: 'short', year: 'numeric'});
+                html += '<div class="coverage-month ' + (found ? 'found' : 'missing') + '">';
+                html += '<span class="month-icon">' + (found ? '&#9989;' : '&#10060;') + '</span>';
+                html += '<span class="month-label">' + label + '</span>';
+                if (!found) html += '<span class="month-tag">MISSING</span>';
+                html += '</div>';
+            });
+
+            html += '</div>';
+            html += '<div class="coverage-summary">';
+            html += 'Coverage: ' + bc.coverage_percent + '% | ';
+            html += 'Consecutive: ' + (bc.is_consecutive ? 'Yes' : 'No');
+            if (bc.largest_gap) html += ' | Largest Gap: ' + bc.largest_gap;
+            html += '</div>';
+
+            if (bc.warning) {
+                html += '<div class="coverage-warning">' + bc.warning + '</div>';
+            }
+
+            html += '</div>';
+        });
+    }
+
+    if (coverage.recommendation && coverage.has_gaps) {
+        html += '<div class="coverage-recommendation">' + coverage.recommendation + '</div>';
+    }
+
+    content.innerHTML = html;
+}
 </script>
 {% endblock %}

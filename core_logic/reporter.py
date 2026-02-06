@@ -1252,6 +1252,66 @@ def _add_quality_report_tab(workbook, formats: Dict, quality_report: Dict) -> No
     ws.write(row, 0, "", formats['value'])
     ws.write(row, 1, rec, formats['wrap'])
 
+    coverage = quality_report.get('coverage_report')
+    if coverage and coverage.get('bank_coverage'):
+        row += 2
+        ws.write(row, 0, "STATEMENT COVERAGE", formats['title'])
+        row += 1
+
+        for bc in coverage['bank_coverage']:
+            row += 1
+            bank_label = bc.get('bank', 'Unknown')
+            if bc.get('account'):
+                bank_label += f" ({bc['account']})"
+            ws.write(row, 0, bank_label, formats['section'])
+            row += 1
+
+            ws.write(row, 0, "Month", formats['header'])
+            ws.write(row, 1, "Status", formats['header'])
+            row += 1
+
+            all_m = sorted(set(bc.get('months_found', []) + bc.get('months_missing', [])))
+            for m in all_m:
+                found = m in bc.get('months_found', [])
+                try:
+                    from datetime import datetime as _dt
+                    dt = _dt.strptime(m, '%Y-%m')
+                    label = dt.strftime('%b %Y')
+                except Exception:
+                    label = m
+                ws.write(row, 0, label, formats['value'])
+                if found:
+                    ws.write(row, 1, "\u2713 Found", formats['pass'])
+                else:
+                    ws.write(row, 1, "\u2717 MISSING", formats['fail'])
+                row += 1
+
+            row += 1
+            cov_pct = bc.get('coverage_percent', 0)
+            consec = "Yes" if bc.get('is_consecutive') else "No"
+            ws.write(row, 0, "Coverage", formats['value'])
+            cov_fmt = formats['pass'] if cov_pct == 100 else formats['warn'] if cov_pct >= 50 else formats['fail']
+            ws.write(row, 1, f"{cov_pct}%", cov_fmt)
+            row += 1
+            ws.write(row, 0, "Consecutive", formats['value'])
+            ws.write(row, 1, consec, formats['pass'] if consec == "Yes" else formats['fail'])
+            row += 1
+
+            if bc.get('largest_gap'):
+                ws.write(row, 0, "Largest Gap", formats['value'])
+                ws.write(row, 1, bc['largest_gap'], formats['fail'])
+                row += 1
+
+            if bc.get('warning'):
+                ws.write(row, 0, "", formats['value'])
+                ws.write(row, 1, bc['warning'], formats['warn'])
+                row += 1
+
+        if coverage.get('recommendation') and coverage.get('has_gaps'):
+            row += 1
+            ws.write(row, 0, "", formats['value'])
+            ws.write(row, 1, coverage['recommendation'], formats['wrap'])
+
 
 def generate_master_report(
     summary_data: Dict,

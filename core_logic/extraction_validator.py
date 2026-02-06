@@ -320,3 +320,130 @@ def _parse_date(date_str: str) -> Optional[datetime]:
         except ValueError:
             continue
     return None
+
+
+def detect_coverage_gaps(transactions: List[Dict], account_info: Optional[Dict] = None) -> Dict:
+    groups = {}
+
+    for txn in transactions:
+        bank = txn.get('source_bank', 'Unknown')
+        date_str = txn.get('date', '')
+        dt = _parse_date(date_str)
+        if not dt:
+            continue
+
+        month_key = dt.strftime('%Y-%m')
+
+        if bank not in groups:
+            groups[bank] = {'months': set(), 'account': None}
+        groups[bank]['months'].add(month_key)
+
+    if account_info:
+        acct_num = account_info.get('account_number', '')
+        if acct_num and groups:
+            first_bank = next(iter(groups))
+            if acct_num and len(acct_num) >= 4:
+                groups[first_bank]['account'] = f"****{acct_num[-4:]}"
+
+    bank_coverage = []
+    total_months_covered = 0
+    has_gaps = False
+
+    for bank, data in groups.items():
+        months_found = sorted(data['months'])
+        if not months_found:
+            continue
+
+        total_months_covered += len(months_found)
+
+        earliest = datetime.strptime(months_found[0], '%Y-%m')
+        latest = datetime.strptime(months_found[-1], '%Y-%m')
+
+        all_months = []
+        current = earliest
+        while current <= latest:
+            all_months.append(current.strftime('%Y-%m'))
+            if current.month == 12:
+                current = current.replace(year=current.year + 1, month=1)
+            else:
+                current = current.replace(month=current.month + 1)
+
+        months_missing = [m for m in all_months if m not in data['months']]
+
+        is_consecutive = len(months_missing) == 0
+        if months_missing:
+            has_gaps = True
+
+        largest_gap = None
+        if months_missing:
+            gap_start = None
+            gap_length = 0
+            max_gap_start = None
+            max_gap_end = None
+            max_gap_length = 0
+
+            for m in all_months:
+                if m in months_missing:
+                    if gap_start is None:
+                        gap_start = m
+                    gap_length += 1
+                else:
+                    if gap_length > max_gap_length:
+                        max_gap_length = gap_length
+                        max_gap_start = gap_start
+                        max_gap_end = prev_missing
+                    gap_start = None
+                    gap_length = 0
+                if m in months_missing:
+                    prev_missing = m
+
+            if gap_length > max_gap_length:
+                max_gap_length = gap_length
+                max_gap_start = gap_start
+                max_gap_end = prev_missing
+
+            if max_gap_start and max_gap_end:
+                s = datetime.strptime(max_gap_start, '%Y-%m')
+                e = datetime.strptime(max_gap_end, '%Y-%m')
+                largest_gap = f"{max_gap_length} month{'s' if max_gap_length != 1 else ''} ({s.strftime('%b %Y')} - {e.strftime('%b %Y')})"
+
+        warning = None
+        if len(months_found) < 3:
+            warning = f"Only {len(months_found)} month(s) of statements - most lenders require 3-6 consecutive months"
+        elif months_missing:
+            warning = "Gap detected - request missing statements before submitting to lenders"
+
+        coverage_percent = round(len(months_found) / len(all_months) * 100) if all_months else 100
+
+        bank_coverage.append({
+            'bank': bank,
+            'account': data.get('account'),
+            'months_found': months_found,
+            'months_missing': months_missing,
+            'coverage_percent': coverage_percent,
+            'is_consecutive': is_consecutive,
+            'largest_gap': largest_gap,
+            'warning': warning,
+        })
+
+    recommendations = []
+    for bc in bank_coverage:
+        if bc['months_missing']:
+            missing_formatted = []
+            for m in bc['months_missing']:
+                dt = datetime.strptime(m, '%Y-%m')
+                missing_formatted.append(dt.strftime('%b %Y'))
+            if len(missing_formatted) <= 3:
+                recommendations.append(f"Request {bc['bank']} statements for {', '.join(missing_formatted)}")
+            else:
+                recommendations.append(f"Request {bc['bank']} statements for {missing_formatted[0]} - {missing_formatted[-1]}")
+        if len(bc['months_found']) < 3:
+            recommendations.append(f"Need at least 3 months of {bc['bank']} statements for underwriting")
+
+    return {
+        'bank_coverage': bank_coverage,
+        'total_banks': len(bank_coverage),
+        'total_months_covered': total_months_covered,
+        'has_gaps': has_gaps,
+        'recommendation': '; '.join(recommendations) if recommendations else 'Statement coverage looks good',
+    }
