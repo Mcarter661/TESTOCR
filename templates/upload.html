@@ -115,6 +115,7 @@ function updatePreview() {
     }
     
     if (files.length > 0) {
+        uploadZone.classList.add('has-files');
         uploadActions.style.display = 'flex';
         uploadSummary.style.color = '';
         document.getElementById('uploadBtn').disabled = false;
@@ -131,6 +132,7 @@ function updatePreview() {
         const totalMB = (totalSize / (1024 * 1024)).toFixed(1);
         uploadSummary.textContent = files.length + ' file(s) selected (' + totalMB + ' MB total)';
     } else {
+        uploadZone.classList.remove('has-files');
         uploadActions.style.display = 'none';
     }
 }

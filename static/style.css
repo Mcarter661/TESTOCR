@@ -434,6 +434,10 @@ body {
     margin-bottom: 20px;
 }
 
+.upload-zone.has-files {
+    padding: 24px 40px;
+}
+
 .upload-zone:hover, .upload-zone.dragover {
     border-color: var(--primary);
     background: #f8fafc;
@@ -460,6 +464,8 @@ body {
 .file-preview {
     margin-top: 20px;
     text-align: left;
+    max-height: 400px;
+    overflow-y: auto;
 }
 
 .preview-item {

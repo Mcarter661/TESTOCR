@@ -97,7 +97,7 @@
             <div id="coverageContent"></div>
         </div>
 
-        <div class="completion-actions">
+        <div class="completion-actions" id="completionActions">
             <a href="{{ url_for('results') }}" class="btn btn-primary btn-large">View Reports</a>
             <a href="{{ url_for('upload') }}" class="btn btn-secondary">Upload More Files</a>
         </div>
@@ -220,6 +220,15 @@ function fetchSummary(files) {
             '<div class="stat-row"><span class="stat-label">Total Transactions</span><span class="stat-value">' + (data.total_transactions || 0).toLocaleString() + '</span></div>' +
             '<div class="stat-row"><span class="stat-label">Quality Score</span><span class="stat-value">' + (data.quality_score || 'N/A') + '/100</span></div>' +
             '<div class="stat-row"><span class="stat-label">Report</span><span class="stat-value">' + (data.report_name || 'N/A') + '</span></div>';
+
+        if (data.report_name) {
+            const actions = document.getElementById('completionActions');
+            const downloadLink = document.createElement('a');
+            downloadLink.href = '/download/' + encodeURIComponent(data.report_name);
+            downloadLink.className = 'btn btn-primary btn-large';
+            downloadLink.innerHTML = 'Download Report';
+            actions.insertBefore(downloadLink, actions.firstChild);
+        }
 
         if (data.coverage) {
             showCoverage(data.coverage);
