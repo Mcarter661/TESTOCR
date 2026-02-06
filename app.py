@@ -22,6 +22,7 @@ from core_logic.calculator import calculate_full_deal_metrics, calculate_deal_su
 from core_logic.deal_input import DealInput, MonthlyData, ManualPosition
 from core_logic.deal_summary import generate_deal_summary, DealSummary
 from core_logic.extraction_validator import validate_extraction
+from core_logic.claude_auto_fix import attempt_auto_fix
 
 CONFIG_DIR = 'config'
 
@@ -321,6 +322,53 @@ def run_combined_pipeline(pdf_paths):
             'status': 'complete',
             'message': f'Quality: {qr_status} ({qr_score}/100), {qr_issues} issue(s), {qr_dupes} potential duplicate(s)'
         })
+        
+        if quality_report.get('status') == 'POOR' or quality_report.get('confidence_score', 100) < 70:
+            auto_fix_result = attempt_auto_fix(
+                pdf_paths=pdf_paths,
+                transactions=all_transactions,
+                quality_report=quality_report,
+                bank_name=bank_str,
+                statement_info=all_account_info,
+            )
+            
+            if auto_fix_result.get('status') in ['FIXED', 'IMPROVED']:
+                new_txns = auto_fix_result.get('new_transactions')
+                if new_txns:
+                    for txn in new_txns:
+                        if 'source_bank' not in txn:
+                            txn['source_bank'] = bank_str.replace('_', ' ').title()
+                    all_transactions = new_txns
+                    per_file_transactions = {}
+                    for txn in all_transactions:
+                        bl = txn.get('source_bank', bank_str)
+                        if bl not in per_file_transactions:
+                            per_file_transactions[bl] = []
+                        per_file_transactions[bl].append(txn)
+                    
+                    quality_report = validate_extraction(
+                        transactions=all_transactions,
+                        bank_name=bank_str,
+                        beginning_balance=all_account_info.get('opening_balance'),
+                        ending_balance=all_account_info.get('closing_balance'),
+                        statement_start=all_account_info.get('statement_period_start'),
+                        statement_end=all_account_info.get('statement_period_end'),
+                    )
+                    quality_report['auto_fix_applied'] = True
+                    quality_report['auto_fix_details'] = auto_fix_result
+            
+            fix_status = auto_fix_result.get('status', 'UNCHANGED')
+            fix_action = auto_fix_result.get('action_taken', '')
+            fix_msg = f'Auto-fix: {fix_status}'
+            if auto_fix_result.get('improvement'):
+                fix_msg += f' (+{auto_fix_result["improvement"]} pts)'
+            if fix_action:
+                fix_msg += f' - {fix_action}'
+            result['steps'].append({
+                'name': 'Claude Auto-Fix',
+                'status': 'complete',
+                'message': fix_msg
+            })
         
         scrubbed_data = scrub_transactions(all_transactions, keywords=keywords if keywords else None)
         
