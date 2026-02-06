@@ -275,7 +275,10 @@ def extract_transactions_chase(text: str, tables: List[List] = None) -> List[Dic
     """
     transactions = []
     year = extract_year_from_text(text)
-    lines = text.split('\n')
+    
+    cleaned_text = re.sub(r'\*(?:start|end)\*.*?(?=\d{2}/\d{2}\s)', '', text)
+    cleaned_text = re.sub(r'\*(?:start|end)\*[^\n]*', '', cleaned_text)
+    lines = cleaned_text.split('\n')
     
     current_section = None
     section_is_credit = False
@@ -283,6 +286,8 @@ def extract_transactions_chase(text: str, tables: List[List] = None) -> List[Dic
     credit_headers = ['DEPOSITS AND ADDITIONS']
     debit_headers = ['CHECKS PAID', 'ELECTRONIC WITHDRAWALS', 'ATM & DEBIT CARD WITHDRAWALS',
                      'OTHER WITHDRAWALS', 'FEES', 'SERVICE CHARGES']
+    stop_headers = ['DAILY ENDING BALANCE', 'DAILY LEDGER BALANCE', 'SERVICE CHARGE SUMMARY',
+                    'TRANSACTION DETAIL', 'OVERDRAFT PROTECTION']
     
     skip_patterns = re.compile(
         r'^(Total |DATE|CHECK NO|If you see|not the original|\*|•|Page |\d+ items)',
@@ -295,6 +300,15 @@ def extract_transactions_chase(text: str, tables: List[List] = None) -> List[Dic
             continue
         
         line_upper = line.upper()
+        
+        is_stop = False
+        for header in stop_headers:
+            if header in line_upper:
+                current_section = None
+                is_stop = True
+                break
+        if is_stop:
+            continue
         
         matched_section = False
         for header in debit_headers:

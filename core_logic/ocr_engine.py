@@ -263,14 +263,23 @@ def validate_extraction(transactions: list, opening_bal: float, closing_bal: flo
 def detect_bank_format(text: str) -> str:
     """
     Detect which bank format the statement belongs to.
+    Uses a two-pass approach:
+      1. Check ONLY the header/letterhead area (first ~1500 chars) to avoid
+         false matches from transaction descriptions mentioning other banks.
+      2. Fall back to full-text scan only if no match found in the header.
     """
-    text_upper = text.upper()
-    
+    header_text = text[:1500]
+
+    for bank, patterns in BANK_PATTERNS.items():
+        for pattern in patterns:
+            if re.search(pattern, header_text, re.IGNORECASE):
+                return bank
+
     for bank, patterns in BANK_PATTERNS.items():
         for pattern in patterns:
             if re.search(pattern, text, re.IGNORECASE):
                 return bank
-    
+
     return 'unknown'
 
 
