@@ -15,6 +15,16 @@ from datetime import datetime, timedelta
 from dateutil import parser as date_parser
 import os
 
+from core_logic.bank_parsers import (
+    extract_transactions_chase,
+    extract_transactions_bofa,
+    extract_transactions_wells_fargo,
+    extract_transactions_citibank,
+    extract_transactions_us_bank,
+    extract_transactions_webster,
+    extract_transactions_generic_improved,
+)
+
 try:
     import pytesseract
     from pdf2image import convert_from_path
@@ -26,10 +36,12 @@ except ImportError:
 BANK_PATTERNS = {
     'pnc': [r'PNC Bank', r'PNC BANK', r'pnc\.com'],
     'truist': [r'Truist', r'TRUIST', r'BB&T', r'SunTrust'],
-    'bofa': [r'Bank of America', r'BANK OF AMERICA', r'bankofamerica\.com'],
-    'wells_fargo': [r'Wells Fargo', r'WELLS FARGO', r'wellsfargo\.com'],
+    'bofa': [r'Bank of America', r'BANK OF AMERICA', r'bankofamerica\.com', r'Business Advantage'],
+    'wells_fargo': [r'Wells Fargo', r'WELLS FARGO', r'wellsfargo\.com', r'Optimize Business'],
+    'citibank': [r'CITIBANK', r'CitiBusiness', r'Citibank,?\s+N\.?A\.?', r'Citi CBO'],
+    'us_bank': [r'U\.?S\.?\s+Bank', r'US BANK', r'usbank\.com', r'Silver Business'],
+    'webster': [r'Webster\s*Bank', r'websterbank\.com', r'PLATINUM BUSINESS'],
     'td_bank': [r'TD Bank', r'TD BANK'],
-    'us_bank': [r'U\.S\. Bank', r'US BANK', r'usbank\.com'],
     'capital_one': [r'Capital One', r'CAPITAL ONE'],
     'regions': [r'Regions Bank', r'REGIONS'],
     'citizens': [r'Citizens Bank', r'CITIZENS'],
@@ -38,7 +50,7 @@ BANK_PATTERNS = {
     'key_bank': [r'KeyBank', r'KEY BANK'],
     'santander': [r'Santander', r'SANTANDER'],
     'bmo': [r'BMO Harris', r'BMO HARRIS'],
-    'chase': [r'JPMorgan Chase', r'chase\.com', r'JPMORGAN'],
+    'chase': [r'JPMorgan Chase', r'chase\.com', r'JPMORGAN', r'CHASE', r'Chase Business'],
 }
 
 DATE_PATTERNS = [
@@ -947,6 +959,7 @@ def extract_account_info(text: str, bank_format: str) -> Dict:
 def parse_transactions(text: str, bank_format: str, tables: List[List] = None) -> List[Dict]:
     """
     Parse transaction data from extracted text based on bank format.
+    Routes to bank-specific parsers or improved generic fallback.
     """
     if bank_format == 'pnc':
         return extract_transactions_pnc(text, tables)
@@ -954,8 +967,21 @@ def parse_transactions(text: str, bank_format: str, tables: List[List] = None) -
         return extract_transactions_truist(text, tables)
     elif bank_format == 'chase':
         return extract_transactions_chase(text, tables)
+    elif bank_format in ['bofa', 'bank_of_america']:
+        return extract_transactions_bofa(text, tables)
+    elif bank_format in ['wells_fargo', 'wells']:
+        return extract_transactions_wells_fargo(text, tables)
+    elif bank_format in ['citibank', 'citi']:
+        return extract_transactions_citibank(text, tables)
+    elif bank_format == 'us_bank':
+        return extract_transactions_us_bank(text, tables)
+    elif bank_format == 'webster':
+        return extract_transactions_webster(text, tables)
     else:
-        return extract_transactions_generic(text, tables)
+        transactions = extract_transactions_generic_improved(text, tables)
+        if not transactions:
+            transactions = extract_transactions_generic(text, tables)
+        return transactions
 
 
 def calculate_summary_stats(transactions: List[Dict]) -> Dict:

@@ -1,0 +1,71 @@
+⚠️ CRITICAL UPDATE - READ CAREFULLY BEFORE DOING ANYTHING ⚠️
+
+I have a bank parser update. This is a SURGICAL update - we are ONLY touching 2 files.
+
+═══════════════════════════════════════════════════════════════
+                    WHAT YOU WILL DO
+═══════════════════════════════════════════════════════════════
+
+✅ CREATE 1 NEW FILE:
+   → core_logic/bank_parsers.py (I'm providing this file)
+
+✅ UPDATE 1 EXISTING FILE: 
+   → core_logic/ocr_engine.py (3 small changes only)
+
+═══════════════════════════════════════════════════════════════
+                    WHAT YOU WILL NOT DO
+═══════════════════════════════════════════════════════════════
+
+🚫 DO NOT TOUCH: main.py
+🚫 DO NOT TOUCH: reporter.py
+🚫 DO NOT TOUCH: risk_engine.py
+🚫 DO NOT TOUCH: position_detector.py
+🚫 DO NOT TOUCH: calculator.py
+🚫 DO NOT TOUCH: scrubber.py
+🚫 DO NOT TOUCH: lender_matcher.py
+🚫 DO NOT TOUCH: deal_input.py
+🚫 DO NOT TOUCH: deal_summary.py
+🚫 DO NOT TOUCH: config/ folder
+🚫 DO NOT TOUCH: Any other file
+
+═══════════════════════════════════════════════════════════════
+                    THE 3 CHANGES TO ocr_engine.py
+═══════════════════════════════════════════════════════════════
+
+CHANGE 1: Add import after existing imports (around line 15):
+   from core_logic.bank_parsers import (
+       extract_transactions_chase,
+       extract_transactions_bofa,
+       extract_transactions_wells_fargo,
+       extract_transactions_citibank,
+       extract_transactions_us_bank,
+       extract_transactions_webster,
+       extract_transactions_generic_improved,
+   )
+
+CHANGE 2: Add new banks to BANK_PATTERNS dict (around line 25):
+   Add: 'bofa', 'citibank', 'us_bank', 'webster' patterns
+   (See REPLIT_MERGE_INSTRUCTIONS.md for exact patterns)
+
+CHANGE 3: Update parse_transactions function (around line 947):
+   Add routing for: bofa, wells_fargo, citibank, us_bank, webster
+   (See REPLIT_MERGE_INSTRUCTIONS.md for exact code)
+
+═══════════════════════════════════════════════════════════════
+                    CONFIRMATION REQUIRED
+═══════════════════════════════════════════════════════════════
+
+Before you make ANY changes, please reply with:
+
+1. "I understand I will ONLY create core_logic/bank_parsers.py"
+2. "I understand I will ONLY make 3 changes to ocr_engine.py"  
+3. "I understand I will NOT touch any other files"
+4. "I have read REPLIT_MERGE_INSTRUCTIONS.md"
+
+Then show me the exact changes you plan to make BEFORE applying them.
+
+═══════════════════════════════════════════════════════════════
+
+I'm attaching:
+- REPLIT_MERGE_INSTRUCTIONS.md (detailed step-by-step)
+- bank_parsers.py (the complete new file)
