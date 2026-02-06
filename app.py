@@ -5,6 +5,7 @@ Flask-based web interface for bank statement analysis.
 
 import os
 import json
+import pandas as pd
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
@@ -297,7 +298,12 @@ def run_combined_pipeline(pdf_paths):
             transfer_count = scrubbed_data.get('transfer_count', 0)
             excluded_count = len(scrubbed_data.get('excluded_transactions', []))
             monthly_data = scrubbed_data.get('monthly_data', {})
-            months_count = len(monthly_data.get('monthly_breakdown', [])) if isinstance(monthly_data, dict) else 0
+            if isinstance(monthly_data, pd.DataFrame):
+                months_count = len(monthly_data)
+            elif isinstance(monthly_data, dict):
+                months_count = len(monthly_data.get('monthly_breakdown', []))
+            else:
+                months_count = 0
             excl_msg = f', {excluded_count} excluded' if excluded_count > 0 else ''
             result['steps'].append({
                 'name': 'Transaction Scrubbing',
